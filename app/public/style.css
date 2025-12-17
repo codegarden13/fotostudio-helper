@@ -1,0 +1,82 @@
+/* studio-helper / public/styles.css
+   Minimal UI glue on top of corporate CI tokens/base/layout.
+   Only app-specific pieces are defined here. */
+
+:root{
+  /* Small app-level knobs (use CI tokens by default) */
+  --app-max: 1200px;
+  --app-gap: var(--space-md, 1rem);
+  --app-gap-sm: var(--space-sm, .75rem);
+  --app-pad: var(--space-lg, 1.5rem);
+  --app-radius: var(--radius-md, 8px);
+  --app-border: 1px solid var(--layer-surface-border, #e5e7eb);
+  --app-surface: var(--layer-surface-bg, #fff);
+  --app-shadow: var(--layer-surface-shadow, 0 2px 6px rgba(0,0,0,.06));
+}
+
+/* App frame: let CI handle typography/colors; we only constrain width */
+.app{
+  max-width: var(--app-max);
+}
+
+/* Replace previous custom row/col system with minimal flex helpers */
+.app-row{
+  display:flex;
+  gap: var(--app-gap);
+  margin-bottom: var(--app-gap);
+}
+@media (max-width: 900px){
+  .app-row{ flex-direction:column; }
+}
+
+/* Only if you kept app-col in index.html */
+.app-col{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  gap: var(--app-gap-sm);
+}
+.app-col-bottom{ justify-content:flex-end; }
+
+/* Sessions list: fixed height, monospaced */
+#sessions{
+  height: 320px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Preview image uses CI surface + minimal sizing */
+.preview-img{
+  max-height: 360px;
+  object-fit: contain;
+  border: var(--app-border);
+  border-radius: var(--app-radius);
+  background: rgba(var(--brand-black-900-rgb, 10,10,10), var(--alpha-xxweak, .08));
+}
+
+/* Horizontal thumbnails strip */
+.thumb-strip{
+  white-space: nowrap;
+  border: var(--app-border);
+  border-radius: var(--app-radius);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow);
+}
+
+/* Progress + status: rely on CI colors and base font sizes */
+#status{ color: var(--text-muted, #6b7280); font-size: var(--font-sm, .95rem); }
+progress{ height: 18px; }
+
+/* Log area: use CI code styling but ensure readable block */
+.log{
+  padding: var(--space-sm, .75rem);
+  border-radius: var(--app-radius);
+  background: rgba(var(--brand-black-900-rgb, 10,10,10), var(--alpha-weak, .15));
+  overflow-x: auto;
+}
+
+/* Modal: keep bootstrap behavior, optionally align to CI tokens */
+.modal-content{
+  border: var(--modal-border, var(--app-border));
+  border-radius: var(--modal-radius, var(--app-radius));
+  box-shadow: var(--modal-shadow, var(--app-shadow));
+}
