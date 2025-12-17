@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="de">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -115,26 +116,24 @@
       <select id="sessions" size="12"></select>
     </div>
 
-   <div class="col">
-  <label>Session Preview</label>
+    <div class="col">
+      <label>Session Preview</label>
 
-  <!-- Main preview -->
-  <div class="mb-2">
-    <img
-      id="preview"
-      class="img-fluid border"
-      alt="Preview"
-      style="max-height:360px; object-fit:contain;"
-    />
-    <div id="previewInfo" class="mt-1 small text-monospace"></div>
-  </div>
+      <!-- Main preview -->
+      <div class="mb-2">
+        <img id="preview" class="img-fluid border" alt="Preview" style="max-height:360px; object-fit:contain;" />
+        <div id="previewInfo" class="mt-1 small text-monospace"></div>
 
-  <!-- Horizontal scroll thumbnails -->
-  <div
-    id="thumbStrip"
-    class="d-flex gap-2 overflow-auto border p-2"
-    style="white-space: nowrap;"></div>
-</div>
+        <div class="d-flex gap-2 mt-2">
+          <button id="deleteBtn" class="btn btn-outline-danger btn-sm" type="button">
+            Delete image
+          </button>
+        </div>
+      </div>
+
+      <!-- Horizontal scroll thumbnails -->
+      <div id="thumbStrip" class="d-flex gap-2 overflow-auto border p-2" style="white-space: nowrap;"></div>
+    </div>
   </div>
 
   <!-- IMPORT -->
@@ -154,4 +153,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>
