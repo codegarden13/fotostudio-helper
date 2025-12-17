@@ -49,6 +49,12 @@ const els = {
   status: document.getElementById("status"),
   log: document.getElementById("log"),
   progressBar: document.getElementById("progressBar"),
+
+  //Session Meta infos
+  metaStart: document.getElementById("metaStart"),
+  metaEnd: document.getElementById("metaEnd"),
+  metaCount: document.getElementById("metaCount"),
+  metaExample: document.getElementById("metaExample"),
 };
 
 // Required elements for core functionality
@@ -133,6 +139,26 @@ function resetUIForScan() {
   // Progress bar starts indeterminate
   els.progressBar.max = 100;
   els.progressBar.removeAttribute("value");
+}
+
+
+/**
+ * Render metadata of the currently selected session
+ * into the left-hand "Session-Infos" panel.
+ */
+function renderSessionMeta(session) {
+  if (!session) {
+    els.metaStart.textContent = "–";
+    els.metaEnd.textContent = "–";
+    els.metaCount.textContent = "–";
+    els.metaExample.textContent = "–";
+    return;
+  }
+
+  els.metaStart.textContent = fmt(session.start);
+  els.metaEnd.textContent = fmt(session.end);
+  els.metaCount.textContent = session.count;
+  els.metaExample.textContent = session.exampleName || "–";
 }
 
 /* ------------------------------------------------------------------ */
