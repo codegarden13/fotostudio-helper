@@ -1,11 +1,32 @@
 import express from "express";
 import { exiftool } from "exiftool-vendored";
 
+// Detects connected cameras, exposes camera identity and availability to the UI
 import { registerCameraRoutes } from "./routes/camera.js";
+
+// Scans the camera filesystem, groups images into time-based sessions,
+// and reports scan progress and session metadata
 import { registerScanRoutes } from "./routes/scan.js";
+
+// Serves image previews to the UI (embedded RAW previews and JPEG files),
+// including caching and format-specific handling
 import { registerPreviewRoutes } from "./routes/preview.js";
+
+// Handles importing sessions into the target archive or export directories,
+// applying naming conventions and destination logic
 import { registerImportRoutes } from "./routes/import.js";
+
+// Allows safe removal of images from the camera during culling,
+// restricted to the detected camera mount and supported file types
 import { registerDeleteRoutes } from "./routes/delete.js";
+
+// Exposes read-only server configuration required by the UI
+// (e.g. default target root and workflow-related settings)
+import { registerConfigRoutes } from "./routes/config.js";
+
+
+
+registerConfigRoutes(app);
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
