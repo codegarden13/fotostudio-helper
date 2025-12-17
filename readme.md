@@ -1,6 +1,4 @@
-#  fotostudio-helper 
-
-## storage workflow app for photographers
+#  fotostudio-helper - a storage workflow app
 
 <p align="center"><em>(MacOS, Linux, Windows)</em></p>
 <p align="center">
