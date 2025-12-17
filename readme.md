@@ -1,9 +1,17 @@
+---
+tags:
+  - howto
+  - PR-Foto
+  - Inventar/Studio
+---
+
+
 #  fotostudio-helper
 
 <p align="center"><em>(MacOS, Linux, Windows)</em></p>
 <p align="center">
-  <img src="./logo.png" alt="Illustration des Projekts" width="100%">
-  <div align="center"><strong>Bildbeschreibung Titel.</strong></div>
+  <img src="./assets/logo.png" alt="Illustration des Projekts" width="100%">
+
 
 <div>
   <a href="#installation">⚙️ Installation / Voraussetzungen</a> • 
