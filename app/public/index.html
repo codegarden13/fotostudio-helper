@@ -93,6 +93,29 @@
 <body>
   <h2>Camera Session Importer</h2>
 
+  <div class="row">
+  <div class="col">
+    <label>Default-Ziel (Server)</label>
+    <input id="defaultDestRoot" disabled />
+    <small>Wird vom Server vorgegeben.</small>
+  </div>
+
+  <div class="col">
+    <label>Aktuelles Ziel</label>
+    <input id="currentDestRoot" disabled />
+    <small id="destModeHint">Import nutzt Default-Ziel.</small>
+
+    <div class="d-flex gap-2 mt-2">
+      <button id="chooseDestBtn" class="btn btn-outline-secondary btn-sm" type="button">
+        Alternatives Ziel wählen…
+      </button>
+      <button id="resetDestBtn" class="btn btn-outline-secondary btn-sm" type="button">
+        Zurücksetzen
+      </button>
+    </div>
+  </div>
+</div>
+
 
   <!-- SCAN CONTROLS -->
   <div class="row">
