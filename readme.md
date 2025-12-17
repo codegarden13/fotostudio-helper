@@ -13,6 +13,7 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 Ziele: 
 - **Alle Bilder aller Kameras / Handys** sollen in einer einheitlichen Ordnerstruktur unter logischen Sessionnamen" abgelegt werden.
 - Kein Struktur-Import in Bildverarbeitungsprogramme, stattdessen sollen Programme die existierende Struktur nutzen.
+- Fotosessions werden beim Import definiert und sind in den Exporten namentlich sichtbar.
 
 
 ## Features 
