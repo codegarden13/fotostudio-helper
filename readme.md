@@ -6,7 +6,7 @@
 
 </p>
 
-Cool for photographers NAS-Workflow. 
+**Cool for photographers storage / Backup /Edit Workflow.** 
 
 Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zerissen** - alles ist irgendwo.
 
