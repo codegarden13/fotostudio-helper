@@ -1,0 +1,12 @@
+# Temp notes
+
+_*.md 
+
+# VS Code project settings
+.vscode/
+
+# Swap files
+*.swp
+
+# macOS Finder metadata
+.DS_Store
