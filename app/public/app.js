@@ -9,12 +9,14 @@
  * - Display a main preview image and a horizontal thumbnail strip
  * - Track and visualize scan progress
  * - Allow safe deletion of images from the camera (server-side move to trash)
+ * - Allow switching the import target; export workflow only when target is overridden
  *
  * Backend contract assumptions:
- * - /api/scan returns sessions:
- *   { id, start, end, count, examplePath, exampleName, items[] }
+ * - /api/config returns: { targetRoot: string }
+ * - /api/scan returns sessions: { id, start, end, count, examplePath, exampleName, items[] }
  * - /api/preview returns image/jpeg for ARW (cached embedded preview) and JPG
  * - /api/delete expects: { file: "/absolute/path/on/camera" }
+ * - /api/import accepts: { sessionTitle, sessionStart, files, destRoot? }
  */
 
 /* ------------------------------------------------------------------ */
@@ -22,16 +24,27 @@
 /* ------------------------------------------------------------------ */
 
 const els = {
+  // Controls
   scanBtn: document.getElementById("scanBtn"),
   importBtn: document.getElementById("importBtn"),
   deleteBtn: document.getElementById("deleteBtn"),
 
+  // Target selection UI
+  currentDestRoot: document.getElementById("currentDestRoot"),
+  currentDestInline: document.getElementById("currentDestInline"), // optional (label inline)
+  destModeHint: document.getElementById("destModeHint"),
+  chooseDestBtn: document.getElementById("chooseDestBtn"),
+  resetDestBtn: document.getElementById("resetDestBtn"),
+
+  // Sessions
   sessions: document.getElementById("sessions"),
 
+  // Preview
   preview: document.getElementById("preview"),
   previewInfo: document.getElementById("previewInfo"),
   thumbStrip: document.getElementById("thumbStrip"),
 
+  // Misc
   title: document.getElementById("title"),
   status: document.getElementById("status"),
   log: document.getElementById("log"),
@@ -50,17 +63,17 @@ const REQUIRED = [
   "status",
   "log",
   "progressBar",
+  "currentDestRoot",
+  "destModeHint",
+  "chooseDestBtn",
+  "resetDestBtn",
 ];
 
 for (const key of REQUIRED) {
-  if (!els[key]) {
-    console.error(`Missing required DOM element: #${key}`);
-  }
+  if (!els[key]) console.error(`Missing required DOM element: #${key}`);
 }
 
-if (!els.deleteBtn) {
-  console.warn("deleteBtn not found; delete feature disabled.");
-}
+if (!els.deleteBtn) console.warn("deleteBtn not found; delete feature disabled.");
 
 /* ------------------------------------------------------------------ */
 /* State                                                              */
@@ -73,14 +86,16 @@ let sessions = [];
 let progressTimer = null;
 
 // Absolute path of the image currently shown in the main preview
-// (used by delete button)
 let currentFilePath = null;
+
+// Target selection
+let defaultTargetRoot = null; // from /api/config
+let currentTargetRoot = null; // null => use default
 
 /* ------------------------------------------------------------------ */
 /* Formatting + small UI helpers                                       */
 /* ------------------------------------------------------------------ */
 
-/** Format timestamp (ms) as YYYY-MM-DD HH:MM */
 function fmt(ts) {
   const d = new Date(ts);
   return d.toISOString().replace("T", " ").slice(0, 16);
@@ -95,10 +110,6 @@ function setLog(value) {
     typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
-/**
- * Disable/enable buttons while an operation is running
- * to prevent accidental double execution.
- */
 function setBusy({ scanning = false, importing = false, deleting = false } = {}) {
   if (els.scanBtn) els.scanBtn.disabled = scanning;
   if (els.importBtn) els.importBtn.disabled = importing;
@@ -125,13 +136,73 @@ function resetUIForScan() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Backend interaction                                                 */
+/* Target UI + config                                                  */
 /* ------------------------------------------------------------------ */
 
 /**
- * Ask the backend whether a camera is connected.
- * Returns the camera label or null.
+ * Load server configuration that the UI needs (default target root).
+ * This is the only reliable source of truth for the default destination.
  */
+async function loadConfig() {
+  const res = await fetch("/api/config", { cache: "no-store" });
+  const cfg = await res.json();
+
+  if (!res.ok) {
+    setLog(cfg);
+    throw new Error(cfg?.error || "Failed to load config");
+  }
+
+  defaultTargetRoot = cfg.targetRoot;
+  currentTargetRoot = null; // start in default mode
+  updateTargetUI();
+}
+
+/** Update the visible target (input + optional inline label). */
+function updateTargetUI() {
+  const effective = currentTargetRoot || defaultTargetRoot || "";
+
+  if (els.currentDestRoot) els.currentDestRoot.value = effective;
+  if (els.currentDestInline) els.currentDestInline.textContent = effective;
+
+  const isOverride =
+    !!currentTargetRoot &&
+    !!defaultTargetRoot &&
+    currentTargetRoot !== defaultTargetRoot;
+
+  // Keep this intentionally short (no extra explanations in UI)
+  els.destModeHint.textContent = isOverride ? "Export-Workflow aktiv" : "";
+}
+
+/** Ask the user for an override path (simple and cross-platform). */
+function chooseAlternateTarget() {
+  const suggested = currentTargetRoot || defaultTargetRoot || "";
+  const input = prompt("Alternatives Zielverzeichnis (absoluter Pfad):", suggested);
+  if (!input) return;
+
+  currentTargetRoot = input.trim();
+  updateTargetUI();
+}
+
+/** Return to server default target. */
+function resetAlternateTarget() {
+  currentTargetRoot = null;
+  updateTargetUI();
+}
+
+/**
+ * Only send destRoot when the user actually changed away from default.
+ * This enforces: "Export workflow only when default target is changed".
+ */
+function getImportDestOverrideOrNull() {
+  if (!currentTargetRoot) return null;
+  if (!defaultTargetRoot) return currentTargetRoot;
+  return currentTargetRoot !== defaultTargetRoot ? currentTargetRoot : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Backend interaction                                                 */
+/* ------------------------------------------------------------------ */
+
 async function checkCamera() {
   const res = await fetch("/api/camera", { cache: "no-store" });
   const data = await res.json();
@@ -183,9 +254,6 @@ function highlightThumbnail(activeImg) {
   activeImg.classList.add("border-primary");
 }
 
-/**
- * Update the main preview and keep currentFilePath in sync.
- */
 function setCurrentImage(filePath) {
   currentFilePath = filePath || null;
 
@@ -231,7 +299,6 @@ function showPreviewForSelected() {
   };
 
   clearThumbnails();
-
   if (!Array.isArray(s.items)) return;
 
   s.items.forEach((filePath, idx) => {
@@ -322,7 +389,6 @@ function startProgressPolling() {
       }
 
       els.progressBar.value = Math.round((p.current / p.total) * 100);
-
       if (!p.active) stopProgressPolling();
     } catch {
       // non-fatal; keep UI responsive
@@ -389,14 +455,20 @@ async function runImport() {
   setBusy({ importing: true });
 
   try {
+    const payload = {
+      sessionTitle: els.title.value.trim(),
+      sessionStart: s.start,
+      files: s.items,
+    };
+
+    // Only triggers export workflow when user actually overrides the target
+    const override = getImportDestOverrideOrNull();
+    if (override) payload.destRoot = override;
+
     const res = await fetch("/api/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sessionTitle: els.title.value.trim(),
-        sessionStart: s.start,
-        files: s.items,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await res.json();
@@ -422,5 +494,15 @@ els.sessions.addEventListener("change", showPreviewForSelected);
 els.importBtn.addEventListener("click", runImport);
 els.deleteBtn?.addEventListener("click", deleteCurrentImage);
 
-// Initial status
-checkCamera();
+// Target buttons
+els.chooseDestBtn?.addEventListener("click", chooseAlternateTarget);
+els.resetDestBtn?.addEventListener("click", resetAlternateTarget);
+
+/* ------------------------------------------------------------------ */
+/* Boot                                                               */
+/* ------------------------------------------------------------------ */
+
+// Load config first (so target UI shows immediately), then check camera.
+loadConfig()
+  .catch((err) => setLog(String(err)))
+  .finally(() => checkCamera());
