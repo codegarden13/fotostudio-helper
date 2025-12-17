@@ -30,8 +30,8 @@ Ziele:
 ## Next Steps / Future
 
 -  Fotosession - Aufteilung Dynamisch / Interaktiv
--  Delete-Button
--  Update von Sony Custom Settings
+-  Interaktives setzen der Zeit-Gaps: "Sessionshaping" in Echtzeit
+-  ... Update von Sony Custom Settings
   
 ## Voraussetzungen
 - Node.js >= 18
