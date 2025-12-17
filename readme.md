@@ -7,11 +7,17 @@
 </p>
 
 Cool for photographers NAS-Workflow. 
+Lokale Web-Anwendung zum strukturierten Import von Kamera-Dateien auf eine NAS.
 
 *Kennst Du das auch: Etliche Kameras in der Familie, Handys, die Richtung Apple oder Google speichern. Alles irgendwie da, aber zerissen - alles ist irgendwo.*
 
 ## Features 
-Lokale Web-Anwendung zum strukturierten Import von Kamera-Dateien auf eine NAS.
+
+
+
+![alt text](assets/screen01.png)
+
+
 - Session-Erkennung anhand Zeit-Gaps
 - Web-GUI im Browser
 - Preview für alle Sessions
