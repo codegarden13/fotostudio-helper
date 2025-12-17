@@ -1,11 +1,3 @@
----
-tags:
-  - howto
-  - PR-Foto
-  - Inventar/Studio
----
-
-
 #  fotostudio-helper
 
 <p align="center"><em>(MacOS, Linux, Windows)</em></p>
