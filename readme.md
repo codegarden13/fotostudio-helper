@@ -17,15 +17,13 @@ Ziele:
 
 
 ## Features 
-
+Webgui 
 ![alt text](assets/screen01.png)
 
 
-- Session-Erkennung anhand Zeit-Gaps
-- Web-GUI im Browser
-- Preview für alle Sessions
-- Manuelles benennen der Fotosessions
-- Import in frei definierbare Zielordner (z. B. NAS)
+- Session-Erkennung anhand Zeit-Gaps, Preview der gewähltem Session
+- Manuelles benennen der Fotosessions für den angepassten Import
+- Import in frei definierbare Zielordner
 
 ## Next Steps / Future
 
@@ -35,12 +33,12 @@ Ziele:
   
 ## Voraussetzungen
 - Node.js >= 18
-- macOS oder Linux
+
 
 
 Installation
 ```bash
-git clone <repo-url>
+git clone https://github.com/codegarden13/fotostudio-helper
 cd studio-helper
 npm install
 ```
