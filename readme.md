@@ -10,7 +10,10 @@ Cool for photographers NAS-Workflow.
 
 Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zerissen** - alles ist irgendwo.
 
-Ziel: **Alle Bilder aller Kameras / Handys** sollen in einer einheitlichen Ordnerstruktur unter logischen Sessionnamen" abgelegt werden.
+Ziele: 
+- **Alle Bilder aller Kameras / Handys** sollen in einer einheitlichen Ordnerstruktur unter logischen Sessionnamen" abgelegt werden.
+- Kein Struktur-Import in Bildverarbeitungsprogramme, stattdessen sollen Programme die existierende Struktur nutzen.
+
 
 ## Features 
 
