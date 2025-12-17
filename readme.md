@@ -1,4 +1,6 @@
-#  fotostudio-helper
+#  fotostudio-helper 
+
+## storage workflow app for photographers
 
 <p align="center"><em>(MacOS, Linux, Windows)</em></p>
 <p align="center">
@@ -6,7 +8,7 @@
 
 </p>
 
-**Cool for photographers storage / Backup /Edit Workflow.** 
+
 
 Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zerissen** - alles ist irgendwo.
 
