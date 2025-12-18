@@ -15,26 +15,21 @@ Ziele:
 - Kein Struktur-Import in Bildverarbeitungsprogramme, stattdessen sollen Programme die existierende Struktur nutzen.
 - Fotosessions werden beim Import definiert und sind in den Exporten namentlich sichtbar.
 
-
 ## Features 
-Webgui 
+
 ![alt text](assets/screen01.png)
 
-
-- Session-Erkennung anhand Zeit-Gaps, Preview der gewähltem Session
-- Manuelles benennen der Fotosessions für den angepassten Import
+- Interaktives "Sessionshaping" in Echtzeit (Data-Driven Zeit-Gap-Slider). Die Abstände zwischen den Aufnahmen clustern den Slider. 
+- Naming der Fotosession für angepassten Import - wirkt sich auch die Session-Ordnernamen am Ziel aus.
 - Import in frei definierbare Zielordner
 
 ## Next Steps / Future
 
--  Fotosession - Aufteilung Dynamisch / Interaktiv
--  Interaktives setzen der Zeit-Gaps: "Sessionshaping" in Echtzeit
+-  Interaktiver Metrik - Graph per Session
 -  ... Update von Sony Custom Settings
   
 ## Voraussetzungen
 - Node.js >= 18
-
-
 
 Installation
 ```bash
