@@ -10,9 +10,8 @@
 
 Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zerissen** - alles ist irgendwo.
 
-Ziele: 
-- **Alle Bilder aller Kameras / Handys** sollen in einer einheitlichen Ordnerstruktur unter logischen Sessionnamen" abgelegt werden.
-- Kein Struktur-Import in Bildverarbeitungsprogramme, stattdessen sollen Apps die existierende Struktur nutzen.
+- **Alle Bilder aller Kameras / Handys** landen in einer einheitlichen Ordnerstruktur unter logischen Sessionnamen".
+- Software-Agnostic: Statt Struktur-Import in Bildverarbeitungsprogramme nutzen Apps die so entstandene Struktur.
 - Fotosessions werden beim Import interaktiv definiert, (optional) speziell benannt und sind im Session-Export namentlich sichtbar.
 
 ## Features 
