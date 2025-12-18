@@ -16,7 +16,11 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 - Bilder **aller Kameras / Handys** landen in einer einheitlichen Ordnerstruktur mit logischen Sessionnamen (Default: NAS-Speicherort/Volume/Something/YYYY). Der Zielort ist änderbar.
 - Software-Agnostic: Statt Struktur-Import in Bildverarbeitungsprogramme nutzen Apps die so entstandene Struktur.
 - Fotosessions werden beim Import interaktiv definiert, (optional) speziell benannt und sind im Session-Export namentlich sichtbar.
+
+Warten auf Kamera
 ![alt text](assets/screen02.png)
+Verbundene Kamera, nach Scan
+![alt text](assets/screen03.png)
 ![alt text](assets/screen01.png)
 
 - Interaktives "Sessionshaping" in Echtzeit (Data-Driven Zeit-Gap-Slider). Die Abstände zwischen den Aufnahmen clustern den Slider. 
