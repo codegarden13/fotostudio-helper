@@ -10,12 +10,10 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 
 <p align="center">no matter how you change photo devices: Your sessions are captured.</p>
 
-
-
 ## Features 
 
 
-- **Alle Bilder aller Kameras / Handys** landen in einer einheitlichen Ordnerstruktur unter logischen Sessionnamen".
+- Bilder **aller Kameras / Handys** landen in einer einheitlichen Ordnerstruktur mit logischen Sessionnamen (Default: NAS-Speicherort/Volume/Something/YYYY). Der Zielort ist änderbar.
 - Software-Agnostic: Statt Struktur-Import in Bildverarbeitungsprogramme nutzen Apps die so entstandene Struktur.
 - Fotosessions werden beim Import interaktiv definiert, (optional) speziell benannt und sind im Session-Export namentlich sichtbar.
 ![alt text](assets/screen02.png)
