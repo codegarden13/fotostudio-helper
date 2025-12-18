@@ -21,7 +21,7 @@ Warten auf Kamera
 ![alt text](assets/screen02.png)
 Verbundene Kamera, nach Scan
 ![alt text](assets/screen03.png)
-![alt text](assets/screen01.png)
+
 
 - Interaktives "Sessionshaping" in Echtzeit (Data-Driven Zeit-Gap-Slider). Die Abstände zwischen den Aufnahmen clustern den Slider. 
 - Naming der Fotosession für angepassten Import - wirkt sich auch die Session-Ordnernamen am Ziel aus.
