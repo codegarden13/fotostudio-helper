@@ -25,8 +25,9 @@ Ziele:
 
 ## Next Steps / Future
 
--  Interaktiver Metrik - Graph per Session
--  ... Update von Sony Custom Settings
+- 😎 **'Importieren' - Button** anschliessen 
+- Interaktiver Metrik - Graph per Session
+- ... Update von Sony Custom Settings
   
 ## Voraussetzungen
 - Node.js >= 18
