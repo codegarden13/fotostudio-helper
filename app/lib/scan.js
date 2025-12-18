@@ -9,7 +9,7 @@
 // - Iterative directory walk (no recursion depth risk)
 // - Per-file EXIF timeout to avoid scan hangs
 // - Skips common system folders on removable volumes
-// - More robust EXIF timestamp extraction (handles DateTimeOriginal/CreateDate/etc.)
+// - Robust EXIF timestamp extraction (handles ExifDateTime/Date/string)
 // - Optional debug logging for EXIF fallbacks (off by default)
 
 import path from "path";
@@ -21,28 +21,25 @@ import { extOf } from "./fsutil.js";
    Configuration
    ====================================================== */
 
-// Hard timeout per EXIF read (ms)
-const EXIF_TIMEOUT_MS = 2500;
+const CONFIG = {
+  EXIF_TIMEOUT_MS: 2500,
 
-// Skip common system directories on removable volumes
-const SKIP_DIR_NAMES = new Set([
-  ".Spotlight-V100",
-  ".Trashes",
-  ".fseventsd",
-  "System Volume Information",
-]);
+  // Skip common system directories on removable volumes
+  SKIP_DIR_NAMES: new Set([
+    ".Spotlight-V100",
+    ".Trashes",
+    ".fseventsd",
+    "System Volume Information",
+  ]),
 
-// Set to true temporarily when debugging “why are my gaps tiny?”
-const DEBUG_EXIF_FALLBACK = false;
+  // Set true temporarily when debugging “why are my gaps tiny?”
+  DEBUG_EXIF_FALLBACK: false,
+};
 
 /* ======================================================
    Internal helpers
    ====================================================== */
 
-/**
- * Wrap a promise with a timeout.
- * If the timeout fires first, the returned promise rejects.
- */
 function withTimeout(promise, ms, label = "timeout") {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -52,26 +49,30 @@ function withTimeout(promise, ms, label = "timeout") {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+function isValidDate(d) {
+  return d instanceof Date && !Number.isNaN(d.getTime());
+}
+
 /**
  * Convert various EXIF tag value types into a JS Date (or null).
- * exiftool-vendored typically returns ExifDateTime objects with toJSDate(),
- * but some tags can come back as Date or string depending on tag/type.
+ * exiftool-vendored typically returns ExifDateTime objects with toJSDate().
  */
 function toDate(value) {
   if (!value) return null;
 
+  // exiftool-vendored ExifDateTime / ExifDate
   if (typeof value?.toJSDate === "function") {
     const d = value.toJSDate();
-    return d instanceof Date && !Number.isNaN(d.getTime()) ? d : null;
+    return isValidDate(d) ? d : null;
   }
 
-  if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value;
-  }
+  // Already a JS Date
+  if (isValidDate(value)) return value;
 
+  // Sometimes strings appear depending on tags/types
   if (typeof value === "string") {
     const d = new Date(value);
-    return !Number.isNaN(d.getTime()) ? d : null;
+    return isValidDate(d) ? d : null;
   }
 
   return null;
@@ -80,22 +81,24 @@ function toDate(value) {
 /**
  * Pick the most reliable capture timestamp from an EXIF tag object.
  * Order is intentional:
- * - DateTimeOriginal / SubSecDateTimeOriginal: best representation of capture time
- * - CreateDate / SubSecCreateDate: also typically capture time on many cameras
- * - GPSDateTime: can be present if GPS recorded
+ * - SubSecDateTimeOriginal / DateTimeOriginal: best capture time
+ * - SubSecCreateDate / CreateDate: often capture time on many cameras
+ * - GPSDateTime: sometimes present if GPS recorded
  * - ModifyDate: weakest (often file write time)
  */
 function pickExifDate(tags) {
+  if (!tags) return null;
+
   const candidates = [
-    tags?.SubSecDateTimeOriginal,
-    tags?.DateTimeOriginal,
+    tags.SubSecDateTimeOriginal,
+    tags.DateTimeOriginal,
 
-    tags?.SubSecCreateDate,
-    tags?.CreateDate,
+    tags.SubSecCreateDate,
+    tags.CreateDate,
 
-    tags?.GPSDateTime,
+    tags.GPSDateTime,
 
-    tags?.ModifyDate,
+    tags.ModifyDate,
   ];
 
   for (const c of candidates) {
@@ -103,6 +106,17 @@ function pickExifDate(tags) {
     if (d) return d;
   }
   return null;
+}
+
+function shouldSkipDirentName(name) {
+  if (!name) return false;
+  if (name.startsWith(".")) return true;
+  return CONFIG.SKIP_DIR_NAMES.has(name);
+}
+
+function debugExifFallback(filePath, err) {
+  if (!CONFIG.DEBUG_EXIF_FALLBACK) return;
+  console.warn("[scan.getDateTime] EXIF failed, using mtime:", filePath, String(err));
 }
 
 /* ======================================================
@@ -117,7 +131,7 @@ function pickExifDate(tags) {
  * - Continues on unreadable directories
  *
  * @param {string} rootDir
- * @param {Set<string>} allowedExts
+ * @param {Set<string>} allowedExts (e.g. new Set([".arw",".jpg"]))
  * @returns {Promise<string[]>}
  */
 export async function walk(rootDir, allowedExts) {
@@ -128,7 +142,7 @@ export async function walk(rootDir, allowedExts) {
   const results = [];
   const stack = [rootDir];
 
-  while (stack.length > 0) {
+  while (stack.length) {
     const dir = stack.pop();
 
     let entries;
@@ -141,10 +155,7 @@ export async function walk(rootDir, allowedExts) {
 
     for (const entry of entries) {
       const name = entry.name;
-
-      // Cheap early skips
-      if (name.startsWith(".")) continue;
-      if (SKIP_DIR_NAMES.has(name)) continue;
+      if (shouldSkipDirentName(name)) continue;
 
       const fullPath = path.join(dir, name);
 
@@ -153,7 +164,10 @@ export async function walk(rootDir, allowedExts) {
         continue;
       }
 
-      if (entry.isFile() && allowedExts.has(extOf(fullPath))) {
+      if (!entry.isFile()) continue;
+
+      // extOf() should already normalize case; if not, ensure extOf returns lower-case.
+      if (allowedExts.has(extOf(fullPath))) {
         results.push(fullPath);
       }
     }
@@ -165,7 +179,7 @@ export async function walk(rootDir, allowedExts) {
 /**
  * Determine the best timestamp for a file.
  *
- * Order of preference:
+ * Order:
  * 1) EXIF capture timestamps (DateTimeOriginal/CreateDate/etc.)
  * 2) Filesystem mtime (fallback)
  *
@@ -178,18 +192,14 @@ export async function getDateTime(filePath) {
   try {
     const tags = await withTimeout(
       exiftool.read(filePath),
-      EXIF_TIMEOUT_MS,
+      CONFIG.EXIF_TIMEOUT_MS,
       "exif-read-timeout"
     );
 
     const exifDate = pickExifDate(tags);
     if (exifDate) return exifDate;
   } catch (err) {
-    // EXIF errors or timeout → fall back to filesystem
-    if (DEBUG_EXIF_FALLBACK) {
-      // Keep log volume low; filePath only.
-      console.warn("[getDateTime] EXIF failed, using mtime:", filePath, String(err));
-    }
+    debugExifFallback(filePath, err);
   }
 
   const stat = await fsp.stat(filePath);

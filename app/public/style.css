@@ -12,9 +12,12 @@
   --app-gap: var(--space-md, 1rem);
   --app-gap-sm: var(--space-sm, .75rem);
 
+  --layer-surface-bg:#ff9933;
+  --brand-yellow-500: #FFD166;
+
   --app-radius: var(--radius-md, 8px);
   --app-border: 1px solid var(--layer-surface-border, #e5e7eb);
-  --app-surface: var(--layer-surface-bg, #fff);
+  --app-surface: var(--brand-yellow-500, #fff);
   --app-shadow: var(--layer-surface-shadow, 0 2px 6px rgba(0,0,0,.06));
 }
 
@@ -23,6 +26,7 @@
    --------------------------------------------------------- */
 .app {
   max-width: var(--app-max-width);
+  background-color: var(--app-surface);
 }
 
 /* Reduce Bootstrap vertical density slightly */
