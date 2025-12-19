@@ -11,7 +11,7 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 <p align="center">no matter how you change photo devices: Your sessions are captured.</p>
 
 ## Features
-- Software-Agnostic: keine Abhängigkeit durch Struktur-Import Bildverarbeitungsprogramme
+- Software-Agnostic: keine Abhängigkeit Aufgrund vorheriger Struktur-Importe in irgendeines Deiner Bildverarbeitungsprogramme
 - Nachbereitung von Fotosessions direkt beim Kunden
   - Interaktives "Sessionshaping" in Echtzeit (Data-Driven Zeit-Gap-Slider). Die Abstände zwischen den Aufnahmen clustern den Slider. 
 - Studio: Bilder **aller Kameras / Handys** landen in einer einheitlichen Ordnerstruktur mit logischen Sessionnamen (Default: NAS-Speicherort/Volume/Something/YYYY). Der Zielort ist änderbar.
