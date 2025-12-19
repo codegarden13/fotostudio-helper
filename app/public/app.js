@@ -63,7 +63,6 @@ const els = {
 
   // Camera status
   cameraAlert: document.getElementById("cameraAlert"),
-  retryCameraBtn: document.getElementById("retryCameraBtn"),
   cameraPollCountdown: document.getElementById("cameraPollCountdown"),
 
   // Gap slider
@@ -112,10 +111,14 @@ const state = {
 
   // Camera polling
   cameraPollTimer: null,
-  cameraCountdownTimer: null,
-  cameraNextCheckAtMs: 0,
+
   cameraCheckInFlight: false,
   cameraLast: { connected: false, label: "" },
+
+  cameraLastCheckAtMs: 0,   // timestamp of last /api/camera request
+  cameraElapsedTimer: null,// UI ticker
+
+  cameraWaitSinceMs: 0, // startet, wenn camera disconnected erkannt wird
 
   // Import target
   defaultTargetRoot: null,
@@ -218,8 +221,17 @@ function uiSetCamera(connected, label = "") {
 
 function uiSetCameraCountdown(secondsRemaining) {
   if (!els.cameraPollCountdown) return;
-  const s = Math.max(0, Math.ceil(secondsRemaining));
-  els.cameraPollCountdown.textContent = String(s);
+
+  // Stable: 2,1,0 (no bouncing)
+  const s = Math.max(0, Math.floor(secondsRemaining));
+  if (els.cameraPollCountdown.textContent !== String(s)) {
+    els.cameraPollCountdown.textContent = String(s);
+  }
+}
+
+function renderCameraCountdown() {
+  const msLeft = Math.max(0, state.cameraNextCheckAtMs - Date.now());
+  uiSetCameraCountdown(msLeft / 1000);
 }
 
 function uiRenderTarget() {
@@ -445,19 +457,31 @@ async function loadConfig() {
 }
 
 async function checkCameraOnce() {
-  if (state.cameraCheckInFlight) return state.cameraLast.connected ? state.cameraLast.label : null;
+  if (state.cameraCheckInFlight) return state.cameraLast?.label ?? null;
   state.cameraCheckInFlight = true;
 
   try {
+    state.cameraLastCheckAtMs = Date.now();
+
     const data = await fetchJson("/api/camera", { cache: "no-store" });
     const connected = !!data.connected;
     const label = connected ? String(data.label || "") : "";
 
+    // Statuswechsel-Logik für "Wartezeit"
+    if (!connected) {
+      // nur beim Übergang oder beim allerersten Mal starten
+      if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
+    } else {
+      // sobald connected, Wartezeit zurücksetzen
+      state.cameraWaitSinceMs = 0;
+    }
+
     state.cameraLast = { connected, label };
     uiSetCamera(connected, label);
-
     return connected ? label : null;
   } catch {
+    // Fehler behandeln wie "nicht verbunden"
+    if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
     state.cameraLast = { connected: false, label: "" };
     uiSetCamera(false, "");
     return null;
@@ -621,24 +645,35 @@ function stopCameraCountdownTicker() {
   }
 }
 
-function renderCameraCountdown() {
-  const msLeft = Math.max(0, state.cameraNextCheckAtMs - Date.now());
-  uiSetCameraCountdown(msLeft / 1000);
+
+
+function renderCameraElapsed() {
+  if (!els.cameraPollCountdown) return;
+
+  // wenn verbunden: optional 0 oder leer
+  if (state.cameraLast?.connected) {
+    els.cameraPollCountdown.textContent = "0";
+    return;
+  }
+
+  if (!state.cameraWaitSinceMs) {
+    els.cameraPollCountdown.textContent = "0";
+    return;
+  }
+
+  const elapsedSec = Math.floor((Date.now() - state.cameraWaitSinceMs) / 1000);
+  els.cameraPollCountdown.textContent = String(elapsedSec);
 }
 
 function startCameraPolling() {
   stopCameraPolling();
 
-  // immediate check
   checkCameraOnce();
-  state.cameraNextCheckAtMs = Date.now() + APP.CAMERA_POLL_MS;
 
-  startCameraCountdownTicker();
+  state.cameraPollTimer = setInterval(checkCameraOnce, APP.CAMERA_POLL_MS);
+  state.cameraElapsedTimer = setInterval(renderCameraElapsed, 250);
 
-  state.cameraPollTimer = setInterval(async () => {
-    await checkCameraOnce();
-    state.cameraNextCheckAtMs = Date.now() + APP.CAMERA_POLL_MS;
-  }, APP.CAMERA_POLL_MS);
+  renderCameraElapsed();
 }
 
 function stopCameraPolling() {
@@ -646,18 +681,17 @@ function stopCameraPolling() {
     clearInterval(state.cameraPollTimer);
     state.cameraPollTimer = null;
   }
-  stopCameraCountdownTicker();
+  if (state.cameraElapsedTimer) {
+    clearInterval(state.cameraElapsedTimer);
+    state.cameraElapsedTimer = null;
+  }
 }
 
 /* ======================================================
    10) EVENT WIRING + BOOT
    ====================================================== */
 
-on(els.retryCameraBtn, "click", async () => {
-  await checkCameraOnce();
-  state.cameraNextCheckAtMs = Date.now() + APP.CAMERA_POLL_MS;
-  renderCameraCountdown();
-});
+
 
 on(els.scanBtn, "click", runScan);
 on(els.deleteBtn, "click", deleteCurrentImage);
