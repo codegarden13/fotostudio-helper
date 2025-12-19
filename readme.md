@@ -19,10 +19,15 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 
 ## Usage
 
-### Warten auf Kamera
+### Kamera verbinden
+Warten auf Kamera
 ![alt text](assets/screen01.png)
-### Verbundene Kamera, nach Scan
+
+### Scannen
+### Fotosessions Justieren und wählen 
 ![alt text](assets/screen02.png)
+### Fotosession optional umbenennen 
+### sichern / exportieren 
 
 
 ## Next Steps / Future
