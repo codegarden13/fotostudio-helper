@@ -10,3 +10,6 @@ _*.md
 
 # macOS Finder metadata
 .DS_Store
+
+
+.gitignore
