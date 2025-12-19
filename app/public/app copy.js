@@ -1,22 +1,51 @@
 /**
  * studio-helper / public/app.js
  *
- * Frontend controller for Studio Helper.
+ * Single-file frontend controller (structured, “modular within one file”).
  *
  * Responsibilities:
  * - Load server config (/api/config) and render target UI
- * - Check camera connection (/api/camera) and show status (red if missing)
+ * - Poll camera connection (/api/camera) every 2s with countdown display
  * - Scan filesystem (/api/scan) and receive raw items [{path, ts}]
  * - Compute gap presets from data and drive the gap slider
  * - Group raw items into sessions client-side (gap slider)
  * - Render session list, meta info, preview + thumbnails
+ * - Delete current image and keep the current session selected
  * - Poll scan progress and update progress bar
  */
+
+/* ======================================================
+   01) CONFIG / CONSTANTS
+   ====================================================== */
+
+const APP = {
+  PROGRESS_POLL_MS: 250,
+
+  // Camera poll
+  CAMERA_POLL_MS: 2000,              // hit /api/camera every 2s
+  CAMERA_COUNTDOWN_TICK_MS: 250,     // update countdown label 4x/sec
+
+  // Gap preset generation
+  GAP_PRESET_STEPS: 11,
+  GAP_PRESET_TOP_K: 6,
+  GAP_MIN_FLOOR_MS: 1000,
+
+  // Slider fallback (usable before first scan)
+  FALLBACK_GAP_PRESETS_MS: [
+    5_000,
+    15_000,
+    30_000,
+    60_000,
+    5 * 60_000,
+    30 * 60_000,
+    2 * 60 * 60_000,
+  ],
+};
 
 console.log("[app.js] loaded", new Date().toISOString());
 
 /* ======================================================
-   DOM bindings
+   02) DOM BINDINGS
    ====================================================== */
 
 const els = {
@@ -34,7 +63,7 @@ const els = {
 
   // Camera status
   cameraAlert: document.getElementById("cameraAlert"),
-  retryCameraBtn: document.getElementById("retryCameraBtn"),
+  cameraPollCountdown: document.getElementById("cameraPollCountdown"),
 
   // Gap slider
   gapSlider: document.getElementById("gapSlider"),
@@ -44,8 +73,11 @@ const els = {
   // Sessions + preview
   sessions: document.getElementById("sessions"),
   preview: document.getElementById("preview"),
+  previewExposure: document.getElementById("previewExposure"),
+
   previewInfo: document.getElementById("previewInfo"),
   thumbStrip: document.getElementById("thumbStrip"),
+
 
   // Meta
   metaStart: document.getElementById("metaStart"),
@@ -61,48 +93,72 @@ const els = {
 };
 
 /* ======================================================
-   State (single source of truth)
+   03) STATE
    ====================================================== */
 
 const state = {
   // Raw scan output (sorted by ts ASC)
-  scanItems: [], // [{ path, ts }]
+  scanItems: [],
 
-  // Derived sessions (recomputed from scanItems)
+  // Derived sessions
   sessions: [],
 
   // Current image in preview
   currentFilePath: null,
 
+  // Busy flags
+  busy: { scanning: false, importing: false, deleting: false },
+
   // Scan progress polling
   progressTimer: null,
+
+  // Camera polling
+  cameraPollTimer: null,
+
+  cameraCheckInFlight: false,
+  cameraLast: { connected: false, label: "" },
+
+  cameraLastCheckAtMs: 0,   // timestamp of last /api/camera request
+  cameraElapsedTimer: null,// UI ticker
+
+  cameraWaitSinceMs: 0, // startet, wenn camera disconnected erkannt wird
 
   // Import target
   defaultTargetRoot: null,
   currentTargetRoot: null,
 
-  // Gap slider (ONLY this model is used)
-  gapPresetsMs: [],  // array of ms values
-  gapPresetIndex: 0, // integer slider position
+  // Gap slider model
+  gapPresetsMs: [],
+  gapPresetIndex: 0,
   gapMs: 30 * 60 * 1000,
 
   // Title behavior
   userTouchedTitle: false,
-
-  cameraPollTimer : null,
-  cameraPollCountdownTimer :null,
-  cameraPollEveryMs : 2000,
-  cameraPollNextInSec :2,
-
-
 };
 
 /* ======================================================
-   Utilities
+   04) UTILS
    ====================================================== */
 
 const fmt = (ts) => new Date(ts).toISOString().replace("T", " ").slice(0, 16);
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+
+function logLine(...parts) {
+  if (!els.log) return;
+  const ts = new Date().toISOString().slice(11, 19); // HH:MM:SS
+  const msg = parts
+    .map((p) => (typeof p === "string" ? p : JSON.stringify(p)))
+    .join(" ");
+
+  els.log.textContent += `[${ts}] ${msg}\n`;
+  els.log.scrollTop = els.log.scrollHeight;
+}
+
+function on(el, type, handler, options) {
+  if (!el) return;
+  el.addEventListener(type, handler, options);
+}
 
 function setText(el, txt = "") {
   if (el) el.textContent = txt ?? "";
@@ -117,82 +173,25 @@ function setLog(v) {
   if (!els.log) return;
   els.log.textContent = typeof v === "string" ? v : JSON.stringify(v, null, 2);
 }
+
 function setBusy({ scanning = false, importing = false, deleting = false } = {}) {
+  state.busy = { scanning: !!scanning, importing: !!importing, deleting: !!deleting };
   if (els.scanBtn) els.scanBtn.disabled = !!scanning;
   if (els.importBtn) els.importBtn.disabled = !!importing;
   if (els.deleteBtn) els.deleteBtn.disabled = !!deleting;
 }
-async function fetchJson(url, init) {
-  const res = await fetch(url, init);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw data;
-  return data;
+
+function uniqueSorted(arr) {
+  return Array.from(new Set(arr.filter((x) => Number.isFinite(x) && x > 0))).sort((a, b) => a - b);
 }
 
-/* ======================================================
-   Camera
-   ====================================================== */
-
-function setCameraUI(connected, label = "") {
-  setText(els.status, connected ? `Camera: ${label}` : "No camera connected");
-  els.status?.classList.toggle("text-danger", !connected);
-
-  if (els.cameraAlert) {
-    els.cameraAlert.classList.toggle("d-none", connected);
-  }
-
-  if (els.scanBtn) els.scanBtn.disabled = !connected;
-  if (els.deleteBtn) els.deleteBtn.disabled = !connected;
-
-  if (!connected && els.progressBar) {
-    els.progressBar.value = 0;
-  }
+function normalizeAndSortItems(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((it) => ({ path: it?.path, ts: Number(it?.ts) }))
+    .filter((it) => it.path && Number.isFinite(it.ts))
+    .sort((a, b) => a.ts - b.ts);
 }
 
-async function checkCamera() {
-  try {
-    const data = await fetchJson("/api/camera", { cache: "no-store" });
-    if (!data.connected) {
-      setCameraUI(false);
-      return null;
-    }
-    setCameraUI(true, data.label);
-    return data.label;
-  } catch {
-    setCameraUI(false);
-    return null;
-  }
-}
-
-/* ======================================================
-   Config + target (minimal; keep your existing behavior)
-   ====================================================== */
-
-async function loadConfig() {
-  const cfg = await fetchJson("/api/config", { cache: "no-store" });
-  state.defaultTargetRoot = cfg.targetRoot;
-  state.currentTargetRoot = null;
-  updateTargetUI();
-}
-
-function updateTargetUI() {
-  const effective = state.currentTargetRoot || state.defaultTargetRoot || "";
-  setValue(els.currentDestRoot, effective);
-  setText(els.currentDestInline, effective);
-
-  const isOverride =
-    !!state.currentTargetRoot &&
-    !!state.defaultTargetRoot &&
-    state.currentTargetRoot !== state.defaultTargetRoot;
-
-  setText(els.destModeHint, isOverride ? "Export-Workflow aktiv" : "");
-}
-
-/* ======================================================
-   Gap slider (single implementation)
-   ====================================================== */
-
-/** Human label for ms durations (seconds → months-ish). */
 function msToLabel(ms) {
   const s = ms / 1000;
   if (s < 60) return `${Math.round(s)}s`;
@@ -208,35 +207,264 @@ function msToLabel(ms) {
   return `${Math.round(mo)}mo`;
 }
 
+/* ======================================================
+   05) API
+   ====================================================== */
 
-function uniqueSorted(arr) {
-  return Array.from(new Set(arr.filter((x) => Number.isFinite(x) && x > 0))).sort((a, b) => a - b);
+async function fetchJson(url, init) {
+  const res = await fetch(url, init);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw data;
+  return data;
 }
 
+/* ======================================================
+   06) UI RENDERERS
+====================================================== */
+
+/* -------------------------------
+   Camera status + countdown
+-------------------------------- */
+
+function uiSetCamera(connected, label = "") {
+  setText(els.status, connected ? `Camera: ${label}` : "No camera connected");
+  els.status?.classList.toggle("text-danger", !connected);
+
+  if (els.cameraAlert) els.cameraAlert.classList.toggle("d-none", connected);
+
+  // Respect busy flags (avoid UI fighting long-running ops)
+  if (els.scanBtn) els.scanBtn.disabled = !connected || !!state.busy?.scanning;
+  if (els.deleteBtn) els.deleteBtn.disabled = !connected || !!state.busy?.deleting;
+
+  if (!connected && els.progressBar) els.progressBar.value = 0;
+}
+
+function uiSetCameraCountdown(secondsRemaining) {
+  if (!els.cameraPollCountdown) return;
+
+  // Stable display: elapsed seconds should be monotonic.
+  const s = Math.max(0, Math.floor(secondsRemaining));
+  const next = String(s);
+  if (els.cameraPollCountdown.textContent !== next) {
+    els.cameraPollCountdown.textContent = next;
+  }
+}
 
 /**
- * Build gap presets that are:
- * - data-driven (uses real consecutive gaps)
- * - complete (covers seconds -> maxSpan with log steps)
- * - practical (includes top largest gaps, includes maxDiff and maxSpan)
- *
- * Returns: sorted unique list of milliseconds.
+ * If you still need "countdown until next check":
+ * call with (state.cameraNextCheckAtMs - Date.now()) / 1000
  */
-function computeGapPresetsFromItems(items, {
-  steps = 11,      // number of log buckets (including ends, before snapping)
-  topK = 6,        // include topK largest consecutive gaps explicitly
-  minFloorMs = 1000,
-} = {}) {
+function uiRenderCameraCountdown() {
+  const msLeft = Math.max(0, state.cameraNextCheckAtMs - Date.now());
+  uiSetCameraCountdown(msLeft / 1000);
+}
+
+/* -------------------------------
+   Target / sessions / meta
+-------------------------------- */
+
+function uiRenderTarget() {
+  const effective = state.currentTargetRoot || state.defaultTargetRoot || "";
+  setValue(els.currentDestRoot, effective);
+  setText(els.currentDestInline, effective);
+
+  const isOverride =
+    !!state.currentTargetRoot &&
+    !!state.defaultTargetRoot &&
+    state.currentTargetRoot !== state.defaultTargetRoot;
+
+  setText(els.destModeHint, isOverride ? "Export-Workflow aktiv" : "");
+}
+
+function uiRenderSessions(list) {
+  if (!els.sessions) return;
+  clearEl(els.sessions);
+
+  list.forEach((s, i) => {
+    els.sessions.add(
+      new Option(
+        `${String(i + 1).padStart(2, "0")} | ${fmt(s.start)} – ${fmt(s.end)} | ${s.count}`,
+        String(i)
+      )
+    );
+  });
+}
+
+function uiRenderSessionMeta(s) {
+  if (!s) return;
+
+  setText(els.metaStart, fmt(s.start));
+  setText(els.metaEnd, fmt(s.end));
+  setText(els.metaCount, String(s.count));
+  setText(els.metaExample, s.exampleName);
+
+  if (els.title && !state.userTouchedTitle) {
+    els.title.value = `${fmt(s.start).slice(0, 10)} – ${s.count} files`;
+  }
+}
+
+/* -------------------------------
+   Exposure line (in header text)
+-------------------------------- */
+
+function formatExposureParts({ shutter, aperture, iso } = {}) {
+  const parts = [];
+  if (shutter) parts.push(`⏱ ${shutter}`);
+  if (aperture) parts.push(`ƒ/${aperture}`);
+  if (iso) parts.push(`ISO ${iso}`);
+  return parts;
+}
+
+function uiSetExposureNone() {
+  if (!els.previewExposure) return;
+  els.previewExposure.textContent = "Session Preview";
+}
+
+function uiSetExposureLoading() {
+  if (!els.previewExposure) return;
+  els.previewExposure.textContent = "Session Preview   ⏱ …   ƒ/…   ISO …";
+}
+
+function uiSetExposureError() {
+  if (!els.previewExposure) return;
+  els.previewExposure.textContent = "Session Preview   ⏱ –   ƒ/–   ISO –";
+}
+
+function uiSetExposureText(exp) {
+  if (!els.previewExposure) return;
+
+  const parts = formatExposureParts(exp);
+  const tail = parts.length ? `   ${parts.join("   ")}` : "";
+  els.previewExposure.textContent = `Session Preview${tail}`;
+}
+
+/* -------------------------------
+   Preview + thumbnails
+-------------------------------- */
+
+function uiRenderPreview(session) {
+  if (!session) return;
+
+  uiSetCurrentImage(session.examplePath);
+  clearEl(els.thumbStrip);
+
+  for (let i = 0; i < session.items.length; i++) {
+    const p = session.items[i];
+
+    const img = document.createElement("img");
+    img.src = `/api/preview?path=${encodeURIComponent(p)}`;
+    img.className = `img-thumbnail${i === 0 ? " border-primary" : ""}`;
+    img.style.height = "96px";
+    img.style.cursor = "pointer";
+    img.style.objectFit = "cover";
+
+    img.onclick = () => {
+      logLine?.("[thumb] click", p);
+      uiSetCurrentImage(p);
+    };
+
+    els.thumbStrip.appendChild(img);
+  }
+}
+
+/**
+ * Set preview image immediately, then fetch exposure async.
+ * NOTE: This is intentionally NOT duplicated anywhere else.
+ */
+async function uiSetCurrentImage(path) {
+  state.currentFilePath = path || null;
+
+  if (!path) {
+    els.preview?.removeAttribute("src");
+    setText(els.previewInfo, "");
+    uiSetExposureNone();
+    return;
+  }
+
+  // Fast: show image first
+  els.preview.src = `/api/preview?path=${encodeURIComponent(path)}`;
+  setText(els.previewInfo, path.split("/").pop());
+
+  // Then: fetch exposure
+  uiSetExposureLoading();
+
+  try {
+    const exp = await fetchExposure(path);
+    logLine?.("[exposure] ok", exp);
+    uiSetExposureText(exp);
+  } catch (e) {
+    logLine?.("[exposure] failed", String(e));
+    uiSetExposureError();
+  }
+}
+
+/* -------------------------------
+   Exposure API
+-------------------------------- */
+
+async function fetchExposure(filePath) {
+  const url = `/api/exposure?path=${encodeURIComponent(filePath)}`;
+  logLine?.("[exposure] GET", url);
+  return fetchJson(url, { cache: "no-store" });
+}
+
+/* -------------------------------
+   Gap slider presets
+-------------------------------- */
+
+function uiApplyGapPresets(presetsMs, { keepNearest = true } = {}) {
+  state.gapPresetsMs = Array.isArray(presetsMs) && presetsMs.length ? presetsMs : [30 * 60e3];
+  if (!els.gapSlider) return;
+
+  els.gapSlider.min = "0";
+  els.gapSlider.max = String(Math.max(0, state.gapPresetsMs.length - 1));
+  els.gapSlider.step = "1";
+
+  let idx = 0;
+  if (keepNearest) {
+    idx = state.gapPresetsMs.findIndex((x) => x >= state.gapMs);
+    if (idx < 0) idx = state.gapPresetsMs.length - 1;
+  } else {
+    idx = Math.floor(state.gapPresetsMs.length / 2);
+  }
+
+  state.gapPresetIndex = clamp(idx, 0, state.gapPresetsMs.length - 1);
+  els.gapSlider.value = String(state.gapPresetIndex);
+
+  gapSyncFromSlider();
+}
+/* ======================================================
+   07) LOGIC (gap presets, grouping, selection)
+   ====================================================== */
+
+function gapSyncFromSlider() {
+  if (!els.gapSlider || !state.gapPresetsMs.length) return;
+
+  const idx = clamp(Number(els.gapSlider.value || 0), 0, state.gapPresetsMs.length - 1);
+  state.gapPresetIndex = idx;
+  state.gapMs = state.gapPresetsMs[idx];
+
+  setText(els.gapValue, msToLabel(state.gapMs));
+
+  if (els.gapLegend) {
+    const first = msToLabel(state.gapPresetsMs[0]);
+    const cur = msToLabel(state.gapMs);
+    const last = msToLabel(state.gapPresetsMs[state.gapPresetsMs.length - 1]);
+    els.gapLegend.textContent = `${first} — ${cur} — ${last} (${idx + 1}/${state.gapPresetsMs.length})`;
+  }
+}
+
+function computeGapPresetsFromItems(
+  items,
+  { steps = APP.GAP_PRESET_STEPS, topK = APP.GAP_PRESET_TOP_K, minFloorMs = APP.GAP_MIN_FLOOR_MS } = {}
+) {
   const ts = (items || [])
     .map((it) => it?.ts)
     .filter(Number.isFinite)
     .sort((a, b) => a - b);
 
-  if (ts.length < 2) {
-    return uniqueSorted([1000, 2000, 5000, 10_000, 30_000, 60_000]);
-  }
+  if (ts.length < 2) return uniqueSorted([1000, 2000, 5000, 10_000, 30_000, 60_000]);
 
-  // consecutive gaps
   const diffs = [];
   for (let i = 1; i < ts.length; i++) {
     const d = ts[i] - ts[i - 1];
@@ -248,9 +476,7 @@ function computeGapPresetsFromItems(items, {
   const minDiff = Math.max(minFloorMs, diffs[0] || minFloorMs);
   const maxDiff = diffs[diffs.length - 1] || minDiff;
 
-  // Helper: snap a target threshold to the smallest *actual* consecutive gap >= target
   function snapUpToRealGap(target) {
-    // binary search lower bound
     let lo = 0, hi = diffs.length - 1;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
@@ -260,14 +486,9 @@ function computeGapPresetsFromItems(items, {
     return diffs[lo] >= target ? diffs[lo] : diffs[diffs.length - 1];
   }
 
-  // 1) Always include some tiny floors (burst splitting)
   const base = [minFloorMs, 2000, 5000, 10_000, 30_000, 60_000].filter((x) => x <= span);
-
-  // 2) Include topK largest consecutive gaps (these are the “natural breakpoints”)
   const largest = diffs.slice(-topK);
 
-  // 3) Add log-spaced targets between minDiff and max(span, maxDiff)
-  //    then snap each to a real consecutive gap.
   const upper = Math.max(maxDiff, span);
   const logTargets = [];
   if (steps >= 2) {
@@ -281,81 +502,21 @@ function computeGapPresetsFromItems(items, {
 
   const snapped = logTargets.map(snapUpToRealGap);
 
-  // 4) Ensure maxDiff is reachable (e.g. your “12h”)
-  // 5) Ensure max span is reachable (mega session)
-  const out = uniqueSorted([
-    ...base,
-    ...snapped,
-    ...largest,
-    maxDiff,
-    span,
-  ].map((x) => Math.max(minFloorMs, Math.min(span, x))));
+  const out = uniqueSorted(
+    [...base, ...snapped, ...largest, maxDiff, span].map((x) => Math.max(minFloorMs, Math.min(span, x)))
+  );
 
-  // Guarantee last is exactly span (mega-session)
   if (out[out.length - 1] !== span) out.push(span);
-
   return uniqueSorted(out);
 }
-
-/**
- * Apply presets to the slider element so it is draggable:
- * - sets min/max/value
- * - syncs state.gapMs and UI labels
- */
-function applyGapPresetsToUI(presetsMs, { keepNearest = true } = {}) {
-  state.gapPresetsMs = Array.isArray(presetsMs) && presetsMs.length ? presetsMs : [30 * 60e3];
-
-  if (!els.gapSlider) return;
-
-  els.gapSlider.min = "0";
-  els.gapSlider.max = String(Math.max(0, state.gapPresetsMs.length - 1));
-  els.gapSlider.step = "1";
-
-  let idx = 0;
-
-  if (keepNearest) {
-    // choose first preset >= current gapMs, else last
-    idx = state.gapPresetsMs.findIndex((x) => x >= state.gapMs);
-    if (idx < 0) idx = state.gapPresetsMs.length - 1;
-  } else {
-    idx = Math.floor(state.gapPresetsMs.length / 2);
-  }
-
-  state.gapPresetIndex = clamp(idx, 0, state.gapPresetsMs.length - 1);
-  els.gapSlider.value = String(state.gapPresetIndex);
-
-  syncGapFromSlider();
-}
-
-/** Read slider position → update state.gapMs + UI label/legend. */
-function syncGapFromSlider() {
-  if (!els.gapSlider || !state.gapPresetsMs.length) return;
-
-  const idx = clamp(Number(els.gapSlider.value || 0), 0, state.gapPresetsMs.length - 1);
-  state.gapMs = state.gapPresetsMs[idx];
-
-  setText(els.gapValue, msToLabel(state.gapMs));
-
-  if (els.gapLegend) {
-    const first = msToLabel(state.gapPresetsMs[0]);
-    const cur = msToLabel(state.gapMs);
-    const last = msToLabel(state.gapPresetsMs[state.gapPresetsMs.length - 1]);
-    els.gapLegend.textContent = `${first} — ${cur} — ${last} (${idx + 1}/${state.gapPresetsMs.length})`;
-  }
-}
-
-/* ======================================================
-   Sessions: grouping + rendering
-   ====================================================== */
 
 function groupSessionsClient(items, gapMs) {
   const groups = [];
   let cur = [];
 
   for (const it of items) {
-    if (!cur.length || it.ts - cur[cur.length - 1].ts <= gapMs) {
-      cur.push(it);
-    } else {
+    if (!cur.length || it.ts - cur[cur.length - 1].ts <= gapMs) cur.push(it);
+    else {
       groups.push(cur);
       cur = [it];
     }
@@ -373,119 +534,143 @@ function groupSessionsClient(items, gapMs) {
   }));
 }
 
-function renderSessions(list) {
-  if (!els.sessions) return;
-  clearEl(els.sessions);
-  list.forEach((s, i) => {
-    els.sessions.add(
-      new Option(
-        `${String(i + 1).padStart(2, "0")} | ${fmt(s.start)} – ${fmt(s.end)} | ${s.count}`,
-        String(i)
-      )
-    );
-  });
-}
-
 function getSelectedSession() {
   if (!els.sessions) return null;
   return state.sessions[els.sessions.selectedIndex] || null;
 }
 
-function renderSessionMeta(s) {
-  if (!s) return;
-
-  setText(els.metaStart, fmt(s.start));
-  setText(els.metaEnd, fmt(s.end));
-  setText(els.metaCount, String(s.count));
-  setText(els.metaExample, s.exampleName);
-
-  if (els.title && !state.userTouchedTitle) {
-    els.title.value = `${fmt(s.start).slice(0, 10)} – ${s.count} files`;
-  }
-}
-
-
-function getSelectedSessionIndex() {
-  return els.sessions ? els.sessions.selectedIndex : -1;
-}
-
 function restoreSelection({ preferSessionId = null, fallbackPath = null } = {}) {
   if (!els.sessions || !state.sessions.length) return;
 
-  // 1) Try to restore by previous session id
   let idx = -1;
-  if (preferSessionId != null) {
-    idx = state.sessions.findIndex((s) => String(s.id) === String(preferSessionId));
-  }
-
-  // 2) Fallback: find session that contains a given image path
-  if (idx < 0 && fallbackPath) {
-    idx = state.sessions.findIndex((s) => Array.isArray(s.items) && s.items.includes(fallbackPath));
-  }
-
-  // 3) Fallback: clamp to last valid index
-  if (idx < 0) idx = clamp(getSelectedSessionIndex(), 0, state.sessions.length - 1);
+  if (preferSessionId != null) idx = state.sessions.findIndex((s) => String(s.id) === String(preferSessionId));
+  if (idx < 0 && fallbackPath) idx = state.sessions.findIndex((s) => Array.isArray(s.items) && s.items.includes(fallbackPath));
+  if (idx < 0) idx = clamp(els.sessions.selectedIndex, 0, state.sessions.length - 1);
 
   els.sessions.selectedIndex = idx;
 }
 
 /* ======================================================
-   Preview
+   08) FLOWS (config, camera, scan, delete)
    ====================================================== */
 
-function setCurrentImage(path) {
-  state.currentFilePath = path || null;
-
-  if (!path) {
-    els.preview?.removeAttribute("src");
-    setText(els.previewInfo, "");
-    return;
-  }
-
-  els.preview.src = `/api/preview?path=${encodeURIComponent(path)}`;
-  setText(els.previewInfo, path.split("/").pop());
+async function loadConfig() {
+  const cfg = await fetchJson("/api/config", { cache: "no-store" });
+  state.defaultTargetRoot = cfg.targetRoot;
+  state.currentTargetRoot = null;
+  uiRenderTarget();
 }
 
-function showPreview(s) {
-  if (!s) return;
+async function checkCameraOnce() {
+  if (state.cameraCheckInFlight) return state.cameraLast?.label ?? null;
+  state.cameraCheckInFlight = true;
 
-  setCurrentImage(s.examplePath);
-  clearEl(els.thumbStrip);
+  try {
+    state.cameraLastCheckAtMs = Date.now();
 
-  for (let i = 0; i < s.items.length; i++) {
-    const p = s.items[i];
-    const img = document.createElement("img");
-    img.src = `/api/preview?path=${encodeURIComponent(p)}`;
-    img.className = `img-thumbnail${i === 0 ? " border-primary" : ""}`;
-    img.style.height = "96px";
-    img.style.cursor = "pointer";
-    img.style.objectFit = "cover";
-    img.onclick = () => setCurrentImage(p);
-    els.thumbStrip.appendChild(img);
+    const data = await fetchJson("/api/camera", { cache: "no-store" });
+    const connected = !!data.connected;
+    const label = connected ? String(data.label || "") : "";
+
+    // Statuswechsel-Logik für "Wartezeit"
+    if (!connected) {
+      // nur beim Übergang oder beim allerersten Mal starten
+      if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
+    } else {
+      // sobald connected, Wartezeit zurücksetzen
+      state.cameraWaitSinceMs = 0;
+    }
+
+    state.cameraLast = { connected, label };
+    uiSetCamera(connected, label);
+    return connected ? label : null;
+  } catch {
+    // Fehler behandeln wie "nicht verbunden"
+    if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
+    state.cameraLast = { connected: false, label: "" };
+    uiSetCamera(false, "");
+    return null;
+  } finally {
+    state.cameraCheckInFlight = false;
   }
 }
 
 function onSessionChange() {
   const s = getSelectedSession();
-  renderSessionMeta(s);
-  showPreview(s);
+  uiRenderSessionMeta(s);
+  uiRenderPreview(s);
 }
 
+function regroupSessionsAndRerender({ preserveSessionId = null, preservePath = null } = {}) {
+  if (!state.scanItems.length) {
+    clearEl(els.sessions);
+    clearEl(els.thumbStrip);
+    uiSetCurrentImage(null);
+    return;
+  }
+
+  gapSyncFromSlider();
+
+  state.sessions = groupSessionsClient(state.scanItems, state.gapMs);
+  uiRenderSessions(state.sessions);
+
+  restoreSelection({ preferSessionId: preserveSessionId, fallbackPath: preservePath });
+  onSessionChange();
+}
+
+function applyScanItemsToUi({ preserveSessionId = null, preservePath = null } = {}) {
+  const presets = computeGapPresetsFromItems(state.scanItems);
+  uiApplyGapPresets(presets, { keepNearest: true });
+  regroupSessionsAndRerender({ preserveSessionId, preservePath });
+}
+
+function resetScanUiAndState() {
+  clearEl(els.sessions);
+  clearEl(els.thumbStrip);
+
+  els.preview?.removeAttribute("src");
+  setText(els.previewInfo, "");
+  setLog("");
+
+  state.scanItems = [];
+  state.sessions = [];
+  state.currentFilePath = null;
+  state.userTouchedTitle = false;
+
+  els.progressBar?.removeAttribute("value");
+}
+
+async function runScan() {
+  resetScanUiAndState();
+
+  const camLabel = await checkCameraOnce();
+  if (!camLabel) {
+    setLog("Scan aborted: No camera detected. Check mount under /Volumes/<CameraName>.");
+    return;
+  }
+
+  setBusy({ scanning: true });
+  startProgressPolling();
+
+  try {
+    const data = await fetchJson("/api/scan", { method: "POST" });
+    state.scanItems = normalizeAndSortItems(data.items);
+    applyScanItemsToUi();
+  } catch (e) {
+    setLog(e);
+  } finally {
+    stopProgressPolling();
+    setBusy({ scanning: false });
+  }
+}
 
 async function deleteCurrentImage() {
   const s = getSelectedSession();
-  if (!s) {
-    setLog("Delete aborted: No session selected.");
-    return;
-  }
+  if (!s) return setLog("Delete aborted: No session selected.");
 
   const preserveSessionId = s.id ?? null;
   const deletingPath = state.currentFilePath;
-
-  if (!deletingPath) {
-    setLog("Delete aborted: No image selected. Click a thumbnail first.");
-    return;
-  }
+  if (!deletingPath) return setLog("Delete aborted: No image selected. Click a thumbnail first.");
 
   const name = deletingPath.split("/").pop();
   if (!confirm(`Delete (move to camera trash): ${name}?`)) return;
@@ -500,35 +685,15 @@ async function deleteCurrentImage() {
     });
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setLog({ error: "Delete failed", status: res.status, data });
-      return;
-    }
+    if (!res.ok) return setLog({ error: "Delete failed", status: res.status, data });
 
-    // 1) Update source-of-truth
-    state.scanItems = state.scanItems.filter((it) => it.path !== deletingPath);
+    state.scanItems = normalizeAndSortItems(state.scanItems.filter((it) => it.path !== deletingPath));
+    applyScanItemsToUi({ preserveSessionId, preservePath: deletingPath });
 
-    // 2) (Optional) Recompute gap presets AFTER deletion
-    //    Important: do NOT regroup without preservation afterwards.
-    if (typeof computeGapPresetsFromItems === "function" && typeof initGapSliderFromPresets === "function") {
-      const presets = computeGapPresetsFromItems(state.scanItems, { steps: 11, topK: 6 });
-      // Keep slider position as close as possible to current gap.
-      initGapSliderFromPresets(presets, { defaultStrategy: "nearest" });
-    }
-
-    // 3) Regroup + re-render ONCE, preserving session selection
-    regroupSessionsAndRerender({
-      preserveSessionId,
-      preservePath: deletingPath, // fallback if ids shifted
-    });
-
-    // 4) Pick a sane next preview INSIDE the currently selected session
     const s2 = getSelectedSession();
-    if (s2?.items?.length) {
-      // If possible, keep same index as before; otherwise show first item.
-      setCurrentImage(s2.items[0]);
-    } else {
-      setCurrentImage(null);
+    if (s2?.items?.length) uiSetCurrentImage(s2.items[0]);
+    else {
+      uiSetCurrentImage(null);
       clearEl(els.thumbStrip);
     }
 
@@ -539,30 +704,9 @@ async function deleteCurrentImage() {
     setBusy({ deleting: false });
   }
 }
-/* ======================================================
-   Regroup + re-render on slider input
-   ====================================================== */
-
-function regroupSessionsAndRerender({ preserveSessionId = null, preservePath = null } = {}) {
-  if (!state.scanItems.length) {
-    clearEl(els.sessions);
-    clearEl(els.thumbStrip);
-    setCurrentImage(null);
-    return;
-  }
-
-  syncGapFromSlider();
-
-  state.sessions = groupSessionsClient(state.scanItems, state.gapMs);
-  renderSessions(state.sessions);
-
-  restoreSelection({ preferSessionId: preserveSessionId, fallbackPath: preservePath });
-
-  onSessionChange();
-}
 
 /* ======================================================
-   Scan progress polling
+   09) TIMERS / POLLING
    ====================================================== */
 
 function startProgressPolling() {
@@ -577,16 +721,12 @@ function startProgressPolling() {
         return;
       }
 
-      if (els.progressBar) {
-        const percent = Math.round((p.current / p.total) * 100);
-        els.progressBar.value = percent;
-      }
-
+      if (els.progressBar) els.progressBar.value = Math.round((p.current / p.total) * 100);
       if (p.active === false) stopProgressPolling();
     } catch {
       // ignore polling errors
     }
-  }, 250);
+  }, APP.PROGRESS_POLL_MS);
 }
 
 function stopProgressPolling() {
@@ -596,170 +736,82 @@ function stopProgressPolling() {
   }
 }
 
-/* ======================================================
-   Scan
-   ====================================================== */
+function startCameraCountdownTicker() {
+  stopCameraCountdownTicker();
 
-async function runScan() {
-  console.log("[runScan] click", new Date().toISOString());
+  renderCameraCountdown();
+  state.cameraCountdownTimer = setInterval(renderCameraCountdown, APP.CAMERA_COUNTDOWN_TICK_MS);
+}
 
-  /* ------------------------------------------------------------
-   * 1) Reset UI + in-memory state (do NOT touch gap presets yet)
-   *    Presets must be computed from real scan results.
-   * ------------------------------------------------------------ */
-  clearEl(els.sessions);
-  clearEl(els.thumbStrip);
-  els.preview?.removeAttribute("src");
-  setText(els.previewInfo, "");
-  setLog("");
-
-  state.scanItems = [];
-  state.sessions = [];
-  state.currentFilePath = null;
-  state.userTouchedTitle = false;
-
-  // Progress bar: indeterminate until progress endpoint has totals
-  els.progressBar?.removeAttribute("value");
-
-  /* ------------------------------------------------------------
-   * 2) Guard: ensure camera is connected
-   * ------------------------------------------------------------ */
-  const camLabel = await checkCamera();
-  if (!camLabel) {
-    setLog("Scan aborted: No camera detected. Check mount under /Volumes/<CameraName>.");
-    return;
-  }
-
-  /* ------------------------------------------------------------
-   * 3) Start scan: lock UI + start progress polling
-   * ------------------------------------------------------------ */
-  setBusy({ scanning: true });
-  startProgressPolling();
-
-  try {
-    /* ----------------------------------------------------------
-     * 4) Execute scan request
-     *    Backend returns: { items: [{path, ts}], ... }
-     * ---------------------------------------------------------- */
-    const data = await fetchJson("/api/scan", { method: "POST" });
-
-    const items = Array.isArray(data.items) ? data.items : [];
-    items.sort((a, b) => Number(a.ts ?? 0) - Number(b.ts ?? 0));
-    state.scanItems = items;
-
-    /* ----------------------------------------------------------
-     * 5) Optional: debug gaps (now we have items)
-     * ---------------------------------------------------------- */
-    debugGaps(state.scanItems);
-
-    /* ----------------------------------------------------------
-     * 6) Build data-driven presets from the actual scan items
-     *    and re-initialize the slider (now it becomes “usable”)
-     * ---------------------------------------------------------- */
-    const presets = computeGapPresetsFromItems(state.scanItems, { steps: 11, topK: 6 });
-    initGapSliderFromPresets(presets, { defaultStrategy: "middle" });
-
-    /* ----------------------------------------------------------
-     * 7) Regroup sessions using the currently selected preset
-     * ---------------------------------------------------------- */
-    regroupSessionsAndRerender();
-  } catch (e) {
-    setLog(e);
-  } finally {
-    /* ----------------------------------------------------------
-     * 8) Cleanup: stop progress + unlock UI
-     * ---------------------------------------------------------- */
-    stopProgressPolling();
-    setBusy({ scanning: false });
+function stopCameraCountdownTicker() {
+  if (state.cameraCountdownTimer) {
+    clearInterval(state.cameraCountdownTimer);
+    state.cameraCountdownTimer = null;
   }
 }
 
-/* ==========================================================
-   Helper: debug time gaps (safe to leave in during dev)
-   ========================================================== */
-function debugGaps(items) {
-  const ts = (items || [])
-    .map((x) => Number(x?.ts))
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b);
 
-  if (ts.length < 2) {
-    console.log("[debugGaps] not enough items");
+
+function renderCameraElapsed() {
+  if (!els.cameraPollCountdown) return;
+
+  // wenn verbunden: optional 0 oder leer
+  if (state.cameraLast?.connected) {
+    els.cameraPollCountdown.textContent = "0";
     return;
   }
 
-  const spanMs = ts[ts.length - 1] - ts[0];
-  let maxDiff = 0;
-  for (let i = 1; i < ts.length; i++) maxDiff = Math.max(maxDiff, ts[i] - ts[i - 1]);
+  if (!state.cameraWaitSinceMs) {
+    els.cameraPollCountdown.textContent = "0";
+    return;
+  }
 
-  console.log("[debugGaps] first:", new Date(ts[0]).toISOString());
-  console.log("[debugGaps] last :", new Date(ts[ts.length - 1]).toISOString());
-  console.log("[debugGaps] spanMs:", spanMs, "spanHours:", (spanMs / 36e5).toFixed(2));
-  console.log("[debugGaps] maxConsecutiveDiffMs:", maxDiff, "maxDiffHours:", (maxDiff / 36e5).toFixed(2));
+  const elapsedSec = Math.floor((Date.now() - state.cameraWaitSinceMs) / 1000);
+  els.cameraPollCountdown.textContent = String(elapsedSec);
 }
 
-/* ==========================================================
-   Helper: initialize slider from presets
-   - sets min/max/step/value
-   - calls syncGapFromSlider() to set state.gapMs + labels
-   ========================================================== */
-function initGapSliderFromPresets(presetsMs, { defaultStrategy = "middle" } = {}) {
-  state.gapPresetsMs = Array.isArray(presetsMs) ? presetsMs : [];
+function startCameraPolling() {
+  stopCameraPolling();
 
-  if (!els.gapSlider || state.gapPresetsMs.length === 0) {
-    // still keep a sane label if slider is missing
-    syncGapFromSlider?.();
-    return;
+  checkCameraOnce();
+
+  state.cameraPollTimer = setInterval(checkCameraOnce, APP.CAMERA_POLL_MS);
+  state.cameraElapsedTimer = setInterval(renderCameraElapsed, 250);
+
+  renderCameraElapsed();
+}
+
+function stopCameraPolling() {
+  if (state.cameraPollTimer) {
+    clearInterval(state.cameraPollTimer);
+    state.cameraPollTimer = null;
   }
-
-  els.gapSlider.min = "0";
-  els.gapSlider.max = String(Math.max(0, state.gapPresetsMs.length - 1));
-  els.gapSlider.step = "1";
-
-  let idx = 0;
-  if (defaultStrategy === "middle") {
-    idx = Math.floor((state.gapPresetsMs.length - 1) / 2);
-  } else if (defaultStrategy === "nearest") {
-    // choose the nearest preset to the current gapMs
-    const g = Number(state.gapMs ?? 0);
-    idx = state.gapPresetsMs.reduce((bestIdx, ms, i) => {
-      const best = state.gapPresetsMs[bestIdx];
-      return Math.abs(ms - g) < Math.abs(best - g) ? i : bestIdx;
-    }, 0);
+  if (state.cameraElapsedTimer) {
+    clearInterval(state.cameraElapsedTimer);
+    state.cameraElapsedTimer = null;
   }
-
-  els.gapSlider.value = String(clamp(idx, 0, state.gapPresetsMs.length - 1));
-
-  // single source of truth for state.gapMs + UI labels/legend
-  syncGapFromSlider();
 }
 
 /* ======================================================
-   Events + boot
+   10) EVENT WIRING + BOOT
    ====================================================== */
 
-els.retryCameraBtn?.addEventListener("click", () => checkCamera());
-els.scanBtn?.addEventListener("click", runScan);
 
-els.sessions?.addEventListener("change", onSessionChange);
 
-// IMPORTANT: use "input" so it updates while dragging
-els.gapSlider?.addEventListener("input", () => {
-  // If slider was stuck because max=0, applyGapPresetsToUI() fixes it.
-  // Here we just regroup.
-  regroupSessionsAndRerender();
+on(els.scanBtn, "click", runScan);
+on(els.deleteBtn, "click", deleteCurrentImage);
+on(els.sessions, "change", onSessionChange);
+on(els.gapSlider, "input", () => regroupSessionsAndRerender());
+on(els.title, "input", () => { state.userTouchedTitle = true; });
+
+// Boot: make slider draggable before first scan
+uiApplyGapPresets(uniqueSorted(APP.FALLBACK_GAP_PRESETS_MS), { keepNearest: false });
+
+// Boot: config + camera polling
+loadConfig().catch(setLog);
+startCameraPolling();
+
+window.addEventListener("beforeunload", () => {
+  stopCameraPolling();
+  stopProgressPolling();
 });
-
-els.title?.addEventListener("input", () => {
-  state.userTouchedTitle = true;
-});
-
-els.deleteBtn?.addEventListener("click", deleteCurrentImage);
-
-// Boot: make slider usable BEFORE first scan (so it is draggable)
-applyGapPresetsToUI(
-  uniqueSorted([5e3, 15e3, 30e3, 60e3, 5 * 60e3, 30 * 60e3, 2 * 60 * 60e3]),
-  { keepNearest: false }
-);
-
-loadConfig().finally(checkCamera);

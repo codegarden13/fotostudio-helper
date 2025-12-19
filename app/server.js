@@ -3,6 +3,10 @@ import { exiftool } from "exiftool-vendored";
 
 // Detects connected cameras, exposes camera identity and availability to the UI
 import { registerCameraRoutes } from "./routes/camera.js";
+//exif
+import { registerExposureRoutes } from "./routes/exposure.js";
+
+
 
 // Scans the camera filesystem, groups images into time-based sessions,
 // and reports scan progress and session metadata
@@ -42,6 +46,7 @@ app.use(express.static("public"));
 
 registerConfigRoutes(app);
 registerCameraRoutes(app);
+registerExposureRoutes(app);
 registerScanRoutes(app);
 registerPreviewRoutes(app);
 registerImportRoutes(app);

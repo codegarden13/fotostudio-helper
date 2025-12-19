@@ -5,11 +5,12 @@
  *
  * Responsibilities:
  * - Load server config (/api/config) and render target UI
- * - Poll camera connection (/api/camera) every 2s with countdown display
+ * - Poll camera connection (/api/camera) every 2s and show elapsed wait time when disconnected
  * - Scan filesystem (/api/scan) and receive raw items [{path, ts}]
  * - Compute gap presets from data and drive the gap slider
  * - Group raw items into sessions client-side (gap slider)
  * - Render session list, meta info, preview + thumbnails
+ * - Fetch + show exposure (shutter/aperture/ISO) for the currently previewed file
  * - Delete current image and keep the current session selected
  * - Poll scan progress and update progress bar
  */
@@ -22,8 +23,8 @@ const APP = {
   PROGRESS_POLL_MS: 250,
 
   // Camera poll
-  CAMERA_POLL_MS: 2000,              // hit /api/camera every 2s
-  CAMERA_COUNTDOWN_TICK_MS: 250,     // update countdown label 4x/sec
+  CAMERA_POLL_MS: 2000,          // hit /api/camera every 2s
+  CAMERA_ELAPSED_TICK_MS: 250,   // update elapsed label 4x/sec
 
   // Gap preset generation
   GAP_PRESET_STEPS: 11,
@@ -73,6 +74,7 @@ const els = {
   // Sessions + preview
   sessions: document.getElementById("sessions"),
   preview: document.getElementById("preview"),
+  previewExposure: document.getElementById("previewExposure"),
   previewInfo: document.getElementById("previewInfo"),
   thumbStrip: document.getElementById("thumbStrip"),
 
@@ -111,14 +113,16 @@ const state = {
 
   // Camera polling
   cameraPollTimer: null,
+  cameraElapsedTimer: null,
 
+  // Camera /api/camera request guard
   cameraCheckInFlight: false,
+
+  // Last camera result
   cameraLast: { connected: false, label: "" },
 
-  cameraLastCheckAtMs: 0,   // timestamp of last /api/camera request
-  cameraElapsedTimer: null,// UI ticker
-
-  cameraWaitSinceMs: 0, // startet, wenn camera disconnected erkannt wird
+  // Elapsed wait time (starts when we detect disconnected)
+  cameraWaitSinceMs: 0,
 
   // Import target
   defaultTargetRoot: null,
@@ -154,13 +158,23 @@ function setValue(el, v = "") {
 function clearEl(el) {
   if (el) el.innerHTML = "";
 }
+
 function setLog(v) {
   if (!els.log) return;
   els.log.textContent = typeof v === "string" ? v : JSON.stringify(v, null, 2);
 }
 
+function logLine(...parts) {
+  if (!els.log) return;
+  const ts = new Date().toISOString().slice(11, 19); // HH:MM:SS
+  const msg = parts.map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join(" ");
+  els.log.textContent += `[${ts}] ${msg}\n`;
+  els.log.scrollTop = els.log.scrollHeight;
+}
+
 function setBusy({ scanning = false, importing = false, deleting = false } = {}) {
   state.busy = { scanning: !!scanning, importing: !!importing, deleting: !!deleting };
+  // Note: camera connectivity gating happens in uiSetCamera()
   if (els.scanBtn) els.scanBtn.disabled = !!scanning;
   if (els.importBtn) els.importBtn.disabled = !!importing;
   if (els.deleteBtn) els.deleteBtn.disabled = !!deleting;
@@ -207,32 +221,50 @@ async function fetchJson(url, init) {
    06) UI RENDERERS
    ====================================================== */
 
+/* -------------------------------
+   Camera status + elapsed wait
+-------------------------------- */
+
 function uiSetCamera(connected, label = "") {
   setText(els.status, connected ? `Camera: ${label}` : "No camera connected");
   els.status?.classList.toggle("text-danger", !connected);
 
   if (els.cameraAlert) els.cameraAlert.classList.toggle("d-none", connected);
 
-  if (els.scanBtn) els.scanBtn.disabled = !connected || state.busy.scanning;
-  if (els.deleteBtn) els.deleteBtn.disabled = !connected || state.busy.deleting;
+  if (els.scanBtn) els.scanBtn.disabled = !connected || !!state.busy.scanning;
+  if (els.deleteBtn) els.deleteBtn.disabled = !connected || !!state.busy.deleting;
 
   if (!connected && els.progressBar) els.progressBar.value = 0;
 }
 
-function uiSetCameraCountdown(secondsRemaining) {
+function uiSetCameraElapsed(secondsElapsed) {
   if (!els.cameraPollCountdown) return;
-
-  // Stable: 2,1,0 (no bouncing)
-  const s = Math.max(0, Math.floor(secondsRemaining));
-  if (els.cameraPollCountdown.textContent !== String(s)) {
-    els.cameraPollCountdown.textContent = String(s);
+  const s = Math.max(0, Math.floor(secondsElapsed));
+  const next = String(s);
+  if (els.cameraPollCountdown.textContent !== next) {
+    els.cameraPollCountdown.textContent = next;
   }
 }
 
-function renderCameraCountdown() {
-  const msLeft = Math.max(0, state.cameraNextCheckAtMs - Date.now());
-  uiSetCameraCountdown(msLeft / 1000);
+function renderCameraElapsed() {
+  // If connected: show 0s (or you can clear it)
+  if (state.cameraLast?.connected) {
+    uiSetCameraElapsed(0);
+    return;
+  }
+
+  if (!state.cameraWaitSinceMs) {
+    uiSetCameraElapsed(0);
+    return;
+  }
+
+  const elapsedSec = (Date.now() - state.cameraWaitSinceMs) / 1000;
+  uiSetCameraElapsed(elapsedSec);
 }
+
+/* -------------------------------
+   Target / sessions / meta
+-------------------------------- */
 
 function uiRenderTarget() {
   const effective = state.currentTargetRoot || state.defaultTargetRoot || "";
@@ -274,18 +306,44 @@ function uiRenderSessionMeta(s) {
   }
 }
 
-function uiSetCurrentImage(path) {
-  state.currentFilePath = path || null;
+/* -------------------------------
+   Exposure line (in header text)
+-------------------------------- */
 
-  if (!path) {
-    els.preview?.removeAttribute("src");
-    setText(els.previewInfo, "");
-    return;
-  }
-
-  els.preview.src = `/api/preview?path=${encodeURIComponent(path)}`;
-  setText(els.previewInfo, path.split("/").pop());
+function formatExposureParts({ shutter, aperture, iso } = {}) {
+  const parts = [];
+  if (shutter) parts.push(`⏱ ${shutter}`);
+  if (aperture) parts.push(`ƒ/${aperture}`);
+  if (iso) parts.push(`ISO ${iso}`);
+  return parts;
 }
+
+function uiSetExposureNone() {
+  if (!els.previewExposure) return;
+  els.previewExposure.textContent = "Wait ...";
+}
+
+function uiSetExposureLoading() {
+  if (!els.previewExposure) return;
+  els.previewExposure.textContent = " loading  ⏱ …   ƒ/…   ISO …";
+}
+
+function uiSetExposureError() {
+  if (!els.previewExposure) return;
+  els.previewExposure.textContent = " Error   ⏱ –   ƒ/–   ISO –";
+}
+
+function uiSetExposureText(exp) {
+  if (!els.previewExposure) return;
+
+  const parts = formatExposureParts(exp);
+  const tail = parts.length ? `   ${parts.join("   ")}` : "";
+  els.previewExposure.textContent = `${tail}`;
+}
+
+/* -------------------------------
+   Preview + thumbnails
+-------------------------------- */
 
 function uiRenderPreview(session) {
   if (!session) return;
@@ -295,16 +353,59 @@ function uiRenderPreview(session) {
 
   for (let i = 0; i < session.items.length; i++) {
     const p = session.items[i];
+
     const img = document.createElement("img");
     img.src = `/api/preview?path=${encodeURIComponent(p)}`;
     img.className = `img-thumbnail${i === 0 ? " border-primary" : ""}`;
     img.style.height = "96px";
     img.style.cursor = "pointer";
     img.style.objectFit = "cover";
-    img.onclick = () => uiSetCurrentImage(p);
+
+    img.onclick = () => {
+      logLine("[thumb] click", p);
+      uiSetCurrentImage(p);
+    };
+
     els.thumbStrip.appendChild(img);
   }
 }
+
+async function uiSetCurrentImage(path) {
+  state.currentFilePath = path || null;
+
+  if (!path) {
+    els.preview?.removeAttribute("src");
+    setText(els.previewInfo, "");
+    uiSetExposureNone();
+    return;
+  }
+
+  // Fast: show image first
+  els.preview.src = `/api/preview?path=${encodeURIComponent(path)}`;
+  setText(els.previewInfo, path.split("/").pop());
+
+  // Then: fetch exposure
+  uiSetExposureLoading();
+
+  try {
+    const exp = await fetchExposure(path);
+    logLine("[exposure] ok", exp);
+    uiSetExposureText(exp);
+  } catch (e) {
+    logLine("[exposure] failed", String(e));
+    uiSetExposureError();
+  }
+}
+
+async function fetchExposure(filePath) {
+  const url = `/api/exposure?path=${encodeURIComponent(filePath)}`;
+  logLine("[exposure] GET", url);
+  return fetchJson(url, { cache: "no-store" });
+}
+
+/* -------------------------------
+   Gap slider presets
+-------------------------------- */
 
 function uiApplyGapPresets(presetsMs, { keepNearest = true } = {}) {
   state.gapPresetsMs = Array.isArray(presetsMs) && presetsMs.length ? presetsMs : [30 * 60e3];
@@ -439,7 +540,9 @@ function restoreSelection({ preferSessionId = null, fallbackPath = null } = {}) 
 
   let idx = -1;
   if (preferSessionId != null) idx = state.sessions.findIndex((s) => String(s.id) === String(preferSessionId));
-  if (idx < 0 && fallbackPath) idx = state.sessions.findIndex((s) => Array.isArray(s.items) && s.items.includes(fallbackPath));
+  if (idx < 0 && fallbackPath) {
+    idx = state.sessions.findIndex((s) => Array.isArray(s.items) && s.items.includes(fallbackPath));
+  }
   if (idx < 0) idx = clamp(els.sessions.selectedIndex, 0, state.sessions.length - 1);
 
   els.sessions.selectedIndex = idx;
@@ -456,34 +559,37 @@ async function loadConfig() {
   uiRenderTarget();
 }
 
+/**
+ * One-shot camera check (guarded).
+ * - Starts/stops elapsed timer baseline via state.cameraWaitSinceMs.
+ * - Updates ui via uiSetCamera.
+ */
 async function checkCameraOnce() {
   if (state.cameraCheckInFlight) return state.cameraLast?.label ?? null;
   state.cameraCheckInFlight = true;
 
   try {
-    state.cameraLastCheckAtMs = Date.now();
-
     const data = await fetchJson("/api/camera", { cache: "no-store" });
     const connected = !!data.connected;
     const label = connected ? String(data.label || "") : "";
 
-    // Statuswechsel-Logik für "Wartezeit"
+    // Wait baseline
     if (!connected) {
-      // nur beim Übergang oder beim allerersten Mal starten
       if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
     } else {
-      // sobald connected, Wartezeit zurücksetzen
       state.cameraWaitSinceMs = 0;
     }
 
     state.cameraLast = { connected, label };
     uiSetCamera(connected, label);
+
     return connected ? label : null;
-  } catch {
-    // Fehler behandeln wie "nicht verbunden"
+  } catch (e) {
+    // treat as disconnected
     if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
     state.cameraLast = { connected: false, label: "" };
     uiSetCamera(false, "");
+    logLine("[camera] error", e);
     return null;
   } finally {
     state.cameraCheckInFlight = false;
@@ -527,6 +633,8 @@ function resetScanUiAndState() {
   setText(els.previewInfo, "");
   setLog("");
 
+  uiSetExposureNone();
+
   state.scanItems = [];
   state.sessions = [];
   state.currentFilePath = null;
@@ -556,6 +664,9 @@ async function runScan() {
   } finally {
     stopProgressPolling();
     setBusy({ scanning: false });
+
+    // Re-apply camera gating in case scanBtn was disabled by busy flag
+    uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
   }
 }
 
@@ -597,6 +708,7 @@ async function deleteCurrentImage() {
     setLog({ error: "Delete exception", err: String(err) });
   } finally {
     setBusy({ deleting: false });
+    uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
   }
 }
 
@@ -631,48 +743,17 @@ function stopProgressPolling() {
   }
 }
 
-function startCameraCountdownTicker() {
-  stopCameraCountdownTicker();
-
-  renderCameraCountdown();
-  state.cameraCountdownTimer = setInterval(renderCameraCountdown, APP.CAMERA_COUNTDOWN_TICK_MS);
-}
-
-function stopCameraCountdownTicker() {
-  if (state.cameraCountdownTimer) {
-    clearInterval(state.cameraCountdownTimer);
-    state.cameraCountdownTimer = null;
-  }
-}
-
-
-
-function renderCameraElapsed() {
-  if (!els.cameraPollCountdown) return;
-
-  // wenn verbunden: optional 0 oder leer
-  if (state.cameraLast?.connected) {
-    els.cameraPollCountdown.textContent = "0";
-    return;
-  }
-
-  if (!state.cameraWaitSinceMs) {
-    els.cameraPollCountdown.textContent = "0";
-    return;
-  }
-
-  const elapsedSec = Math.floor((Date.now() - state.cameraWaitSinceMs) / 1000);
-  els.cameraPollCountdown.textContent = String(elapsedSec);
-}
-
 function startCameraPolling() {
   stopCameraPolling();
 
+  // Run immediately once
   checkCameraOnce();
 
+  // Poll server every 2s
   state.cameraPollTimer = setInterval(checkCameraOnce, APP.CAMERA_POLL_MS);
-  state.cameraElapsedTimer = setInterval(renderCameraElapsed, 250);
 
+  // Update elapsed wait label
+  state.cameraElapsedTimer = setInterval(renderCameraElapsed, APP.CAMERA_ELAPSED_TICK_MS);
   renderCameraElapsed();
 }
 
@@ -690,8 +771,6 @@ function stopCameraPolling() {
 /* ======================================================
    10) EVENT WIRING + BOOT
    ====================================================== */
-
-
 
 on(els.scanBtn, "click", runScan);
 on(els.deleteBtn, "click", deleteCurrentImage);

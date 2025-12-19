@@ -1,134 +1,67 @@
 <!doctype html>
 <html lang="de">
 <head>
-  <!-- ======================================================
-       Document / layout basics
-       ====================================================== -->
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- Bootstrap for layout + components -->
-  <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-    rel="stylesheet"
-  >
-
-  <!-- App-specific styles -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="style.css" rel="stylesheet">
 
   <title>Studio Helper</title>
 </head>
 
 <body>
-  <!-- ======================================================
-       App root
-       Everything inside <main> is controlled by app.js
-       ====================================================== -->
-  <main class="container-lg py-4 app">
+  <!-- Full-width app -->
+  <main class="container-fluid px-4 py-4 app">
 
     <!-- ======================================================
          HEADER
-         - #status is updated continuously by camera polling
          ====================================================== -->
     <header class="d-flex align-items-center justify-content-between mb-3">
       <h2 class="m-0 app-title">Fotosession Splitter</h2>
-
-      <!--
-        app.js updates this span every camera poll:
-        - "Camera: <label>"
-        - "No camera connected"
-      -->
-      <span
-        id="status"
-        class="small text-muted"
-        aria-live="polite"
-      ></span>
+      <span id="status" class="small text-muted" aria-live="polite"></span>
     </header>
 
     <!-- ======================================================
          CAMERA ALERT
-         - Shown/hidden by app.js (uiSetCamera)
-         - Countdown is updated every second while disconnected
          ====================================================== -->
-    <div
-      id="cameraAlert"
-      class="alert alert-danger d-none"
-      role="alert"
-      aria-live="polite"
-    >
-      <div class="d-flex align-items-start justify-content-between gap-3">
-
-        <!-- Explanation text -->
-        <div>
+    <div id="cameraAlert" class="alert alert-danger d-none" role="alert" aria-live="polite">
+      <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
+        <div class="flex-grow-1">
           <div class="fw-semibold">Keine Kamera verbunden</div>
           <div class="small">
-            Bitte Kamera im
-            <span class="font-monospace">MSC / Mass Storage</span>-Modus
-            verbinden und warten, bis sie unter
-            <span class="font-monospace">/Volumes</span> erscheint.
+            Bitte Kamera im <span class="font-monospace">MSC / Mass Storage</span>-Modus verbinden und warten,
+            bis sie unter <span class="font-monospace">/Volumes</span> erscheint.
           </div>
         </div>
 
-        <!--
-          Updated by camera polling countdown timer in app.js
-          Shows seconds until next automatic check
-        -->
-        <div class="small text-muted mt-2">
-          Nächste Prüfung in
-          <span id="cameraPollCountdown" class="fw-semibold">2</span>s
+        <div class="small text-muted mt-1">
+          Wartezeit: <span id="cameraPollCountdown" class="fw-semibold">0</span>s
         </div>
-
-        <!-- Manual retry (calls checkCamera once) -->
-        <button
-          id="retryCameraBtn"
-          type="button"
-          class="btn btn-outline-light btn-sm"
-        >
-          Erneut prüfen
-        </button>
       </div>
     </div>
 
     <!-- ======================================================
-         DESTINATION (IMPORT TARGET)
-         - Values filled by loadConfig()
+         DESTINATION
          ====================================================== -->
-    <section class="card mb-3" aria-label="Zielordner">
+    <section class="card mb-3">
       <div class="card-body py-2">
         <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
 
-          <div class="d-flex align-items-center gap-2 flex-wrap">
+          <div class="d-flex align-items-center gap-2 flex-wrap flex-grow-1">
             <div class="fw-semibold">Ziel</div>
 
-            <!-- app.js writes the active target path here -->
-            <input
-              id="currentDestRoot"
-              class="form-control form-control-sm"
-              style="max-width:520px;"
-              disabled
-              aria-label="Aktuelles Zielverzeichnis"
-            />
+            <input id="currentDestRoot" class="form-control form-control-sm" style="max-width:520px;" disabled />
 
-            <!-- Optional hint: shows export mode -->
             <span id="destModeHint" class="small text-muted"></span>
-
-            <!-- Reserved for future inline use -->
             <span id="currentDestInline" class="d-none"></span>
           </div>
 
           <div class="d-flex gap-2">
-            <button
-              id="chooseDestBtn"
-              class="btn btn-outline-secondary btn-sm"
-              type="button"
-            >
+            <button id="chooseDestBtn" class="btn btn-outline-secondary btn-sm" type="button">
               Alternatives Ziel wählen…
             </button>
-            <button
-              id="resetDestBtn"
-              class="btn btn-outline-secondary btn-sm"
-              type="button"
-            >
+            <button id="resetDestBtn" class="btn btn-outline-secondary btn-sm" type="button">
               Zurücksetzen
             </button>
           </div>
@@ -138,88 +71,53 @@
     </section>
 
     <!-- ======================================================
-         SCAN + GAP CONTROL
+         SCAN + GAP
          ====================================================== -->
-    <section class="card mb-3" aria-label="Scan">
+    <section class="card mb-3">
       <div class="card-body">
 
-        <!-- Scan trigger -->
-        <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
-          <div class="d-flex align-items-center gap-2">
-            <!--
-              Enabled/disabled by camera polling
-              Starts runScan()
-            -->
-            <button
-              id="scanBtn"
-              class="btn btn-outline-secondary btn-sm"
-              type="button"
-            >
-              Scannen
-            </button>
+        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+          <div>
+            <div class="fw-semibold">Scan</div>
+            <div class="small text-muted">Dateien einlesen und Sessions erzeugen</div>
           </div>
+
+          <button id="scanBtn" class="btn btn-outline-secondary btn-sm" type="button">
+            Scannen
+          </button>
         </div>
 
-        <!-- ==================================================
-             SESSION GAP SLIDER
-             - Presets computed from scan results
-             - Slider index → gapMs via app.js
-             ================================================== -->
-        <div id="gapSliderWrap" class="mt-3" aria-label="Session Gap">
+        <div id="gapSliderWrap" class="mt-3">
           <div class="d-flex align-items-center justify-content-between">
             <label for="gapSlider" class="form-label mb-0 fw-semibold">
-              Session-Gap
-              <span class="small text-muted fw-normal">(Dauer)</span>
+              Session-Gap <span class="small text-muted fw-normal">(Dauer)</span>
             </label>
-
-            <!-- app.js updates this text on slider input -->
             <div class="small text-muted">
               <span id="gapValue" class="fw-semibold">–</span>
             </div>
           </div>
 
-          <!--
-            Slider range (min/max/value) is controlled entirely by app.js.
-            HTML values are placeholders only.
-          -->
-          <input
-            id="gapSlider"
-            class="form-range"
-            type="range"
-            min="0"
-            max="8"
-            step="1"
-            value="4"
-            aria-label="Session Gap auswählen"
-          />
-
-          <!-- Human-readable legend (first — current — last) -->
+          <input id="gapSlider" class="form-range" type="range" min="0" max="8" step="1" value="4" />
           <div id="gapLegend" class="small text-muted mt-1"></div>
         </div>
 
-        <!-- ==================================================
-             SCAN PROGRESS
-             - Updated via /api/scan/progress polling
-             ================================================== -->
         <div class="mt-3">
-          <progress
-            id="progressBar"
-            max="100"
-            class="w-100"
-          ></progress>
+          <progress id="progressBar" max="100" class="w-100"></progress>
         </div>
 
       </div>
     </section>
 
     <!-- ======================================================
-         MAIN CONTENT GRID
+         MAIN TWO-COLUMN GRID (stable vertical layout)
          ====================================================== -->
-    <section class="row g-3">
+    <section class="row g-3 align-items-stretch">
 
-      <!-- LEFT: SESSION METADATA -->
-      <div class="col-12 col-lg-4">
-        <section class="card h-100" aria-label="Session-Infos">
+      <!-- LEFT COLUMN -->
+      <div class="col-12 col-lg-4 d-flex flex-column gap-3">
+
+        <!-- Session Infos -->
+        <section class="card">
           <div class="card-header py-2">
             <div class="fw-semibold">Session-Infos</div>
           </div>
@@ -235,114 +133,77 @@
               <dt class="col-5">Bilder</dt>
               <dd class="col-7" id="metaCount">–</dd>
 
-              <dt class="col-5">Erstes Bild der Session</dt>
+              <dt class="col-5">Erstes Bild</dt>
               <dd class="col-7 font-monospace" id="metaExample">–</dd>
             </dl>
 
-            <!-- Editable session title -->
             <div class="mb-2">
-              <label
-                class="form-label fw-semibold mb-1"
-                for="title"
-              >
-                Session-Titel
-              </label>
+              <label class="form-label fw-semibold mb-1" for="title">Session-Titel</label>
               <input id="title" class="form-control" />
             </div>
 
-            <!-- Import action -->
             <div class="d-grid mt-3">
-              <button
-                id="importBtn"
-                class="btn btn-primary"
-                type="button"
-              >
+              <button id="importBtn" class="btn btn-primary" type="button">
                 Importieren
               </button>
             </div>
           </div>
         </section>
-      </div>
 
-      <!-- RIGHT: SESSIONS + PREVIEW -->
-      <div class="col-12 col-lg-8 d-flex flex-column gap-3">
-
-        <!-- Session list -->
-        <section class="card" aria-label="Sessions">
+        <!-- Sessions list (below infos) -->
+        <section class="card flex-grow-1">
           <div class="card-header py-2">
             <div class="fw-semibold">Sessions</div>
           </div>
-          <div class="card-body">
-            <!-- app.js fills options here -->
-            <select
-              id="sessions"
-              size="8"
-              class="form-select font-monospace"
-            ></select>
+          <div class="card-body h-100">
+            <select id="sessions" size="12" class="form-select font-monospace h-100"></select>
           </div>
         </section>
 
-        <!-- Preview -->
-        <section class="card flex-grow-1" aria-label="Preview">
-          <div class="card-header py-2 d-flex align-items-center justify-content-between">
-            <div class="fw-semibold">Session Preview</div>
+      </div>
 
-            <div class="d-flex gap-2">
-              <button
-                id="deleteBtn"
-                class="btn btn-outline-danger btn-sm"
-                type="button"
-              >
-                Delete image
-              </button>
-            </div>
+      <!-- RIGHT COLUMN -->
+      <div class="col-12 col-lg-8 d-flex flex-column">
+
+        <!-- Preview card should stick to top and fill column height -->
+        <section class="card h-100">
+          <div class="card-header py-2 d-flex align-items-center justify-content-between">
+
+            <!-- Title + exposure inline -->
+          <div class="fw-semibold d-flex align-items-center gap-2">
+  <span>Preview</span>
+  <span id="previewExposure" class="preview-exposure" aria-live="polite"></span>
+</div>
+
+            <button id="deleteBtn" class="btn btn-outline-danger btn-sm" type="button">
+              Delete image
+            </button>
           </div>
 
-          <div class="card-body">
+          <div class="card-body d-flex flex-column">
+
             <div class="preview-frame mb-2">
-              <img
-                id="preview"
-                class="img-fluid preview-img"
-                alt="Preview"
-              />
+              <img id="preview" class="img-fluid preview-img" alt="Preview" />
             </div>
 
-            <div
-              id="previewInfo"
-              class="small text-monospace text-muted mb-3"
-            ></div>
+            <div id="previewInfo" class="small text-monospace text-muted mb-3"></div>
 
-            <!-- Thumbnails injected by app.js -->
-            <div
-              id="thumbStrip"
-              class="thumb-strip d-flex gap-2 overflow-auto border rounded p-2"
-            ></div>
+            <!-- Thumb strip at bottom, scrollable -->
+            <div id="thumbStrip" class="thumb-strip d-flex gap-2 overflow-auto border rounded p-2 mt-auto"></div>
           </div>
         </section>
 
       </div>
     </section>
 
-    <!-- ======================================================
-         LOG OUTPUT (DEBUG / ERRORS)
-         ====================================================== -->
-    <section class="mt-3" aria-label="Log">
+    <!-- LOG -->
+    <section class="mt-3">
       <pre id="log" class="log"></pre>
     </section>
 
   </main>
 
-  <!-- ======================================================
-       Scripts
-       ====================================================== -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
-  <!--
-    Main controller:
-    - binds all events
-    - starts camera polling
-    - controls all DOM updates
-  -->
   <script src="app.js"></script>
 </body>
 </html>
