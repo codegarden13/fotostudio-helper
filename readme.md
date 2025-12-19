@@ -12,7 +12,7 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 
 ## Features
 - Software-Agnostic: keine Abhängigkeit durch Struktur-Importe in irgendeines Deiner Bildverarbeitungsprogramme.
-- Nachbereitung von Fotosessions direkt beim Kunden
+- Präsentation von Fotosessions direkt beim Kunden
   - Interaktives "Sessionshaping" in Echtzeit (Data-Driven Zeit-Gap-Slider). Die Abstände zwischen den Aufnahmen clustern den Slider. 
 - Studio: Bilder **aller Kameras / Handys** landen in einer einheitlichen Ordnerstruktur mit logischen Sessionnamen (Default: NAS-Speicherort/Volume/Something/YYYY). Der Zielort ist änderbar.
   - Fotosessions werden für den Import interaktiv definiert, (optional) speziell benannt und sind im Session-Export namentlich sichtbar.
