@@ -27,10 +27,10 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 
 ## Next Steps / Future
 
-- 😎 **'Importieren' - Button** anschliessen 
-- Import in frei definierbare Zielordner
+- 😎 **'Importieren' - Button** anschliessen plus Import in frei definierbare Zielordner
+- Iphone Import
 - Interaktiver Metrik - Graph per Session
-- ... Update von Sony Custom Settings
+- Update von Sony Custom Settings 
   
 ## Voraussetzungen
 - Node.js >= 18
