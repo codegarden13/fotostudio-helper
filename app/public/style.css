@@ -1,155 +1,509 @@
 /* =========================================================
    studio-helper / public/style.css
-   App-specific glue on top of Corporate CI
-   Target: MacBook Pro 16"
+   Glass-look theme (yellow / gray / black / white)
+   Goal: maximize usage of your existing variables.
+   Works as “glue” on top of Bootstrap 5.
    ========================================================= */
 
-/* ---------------------------------------------------------
-   App-level tuning (CI-first, override only when needed)
-   --------------------------------------------------------- */
+
+/* =========================================================
+   2) BRAND & COLOR SYSTEM
+   ========================================================= */
 :root {
-  --app-max-width: 1280px;           /* fits MBP 16" comfortably */
+
+
+  --brand-black-700: #343A40;
+  --brand-black-700-rgb: 52, 58, 64;
+
+  --brand-black-900: #0A0A0A;
+  --brand-black-900-rgb: 10, 10, 10;
+
+  --brand-primary: #2563eb;
+  --brand-primary-rgb: 37, 99, 235;
+
+  --brand-secondary: #f97316;
+  --brand-secondary-rgb: 249, 115, 22;
+
+  --brand-success: #16a34a;
+  --brand-error: #dc2626;
+  --brand-warning: #f59e0b;
+
+  --brand-yellow-50: #FFF5DA;
+  --brand-yellow-50-rgb: 255, 245, 218;
+
+  --brand-yellow-500: #FFD166;
+  --brand-yellow-500-rgb: 255, 209, 102;
+}
+
+
+/* 7a) Local webfonts — Quicksand */
+@font-face {
+  font-family: 'Quicksand';
+  src: url('/public/assets/fonts/quicksand/quicksand-300-normal.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Quicksand';
+  src: url('/public/assets/fonts/quicksand/quicksand-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Work Sans';
+  src: url('/public/assets/fonts/work-sans/work-sans-100-normal.woff2') format('woff2');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Work Sans';
+  src: url('/public/assets/fonts/work-sans/work-sans-100-italic.woff2') format('woff2');
+  font-weight: 100;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* 7b) Typography scale + families */
+:root {
+  --font-xs: clamp(0.75rem, 0.8vw, 0.9rem);
+  --font-sm: clamp(0.85rem, 1vw, 1rem);
+  --font-base: clamp(1rem, 1.5vw, 1.2rem);
+  --font-lg: clamp(1.25rem, 3vw, 2.5rem);
+  --font-xl: clamp(1.5rem, 4vw, 4rem);
+  --font-xxl: clamp(2rem, 6vw, 4rem);
+
+  --font-menu: var(--font-xl);
+  --font-menu-sm: var(--font-lg);
+
+  --card-title-size: var(--font-xxl);
+  --card-title-weight: 700;
+  --card-title-color: var(--text-on-dark);
+
+  --subtitle-size: var(--font-lg);
+  --subtitle-weight: 600;
+  --subtitle-color: var(--brand-yellow-500);
+
+  --line-tight: 1.1;
+  --line-normal: 1.5;
+  --line-loose: 1.8;
+
+  /* families + weights */
+  --font-body: 'Work Sans', system-ui, sans-serif;
+  --font-heading: 'Quicksand', system-ui, sans-serif;
+
+  --font-body-weight: 300;
+  --font-heading-weight: 700;
+}
+
+
+
+
+/* =========================================================
+   01) APP THEME TOKENS (derived from your brand variables)
+   ========================================================= */
+:root {
+  /* Background / surfaces */
+  --app-bg: var(--brand-black-900);
+  --app-bg-rgb: var(--brand-black-900-rgb);
+
+  /* “Glass” surfaces */
+  --glass-bg-rgb: 255, 255, 255;        /* white glass */
+  --glass-alpha: 0.06;                  /* base card tint */
+  --glass-alpha-strong: 0.10;           /* headers / hover */
+  --glass-border-alpha: 0.14;           /* border visibility */
+  --glass-blur: 14px;
+
+  /* Text */
+  --text-on-dark: #f8fafc;
+  --text-muted: rgba(255,255,255,0.70);
+ 
+
+  /* Accents (yellow focus, secondary orange optional) */
+  --accent: var(--brand-yellow-500);
+  --accent-rgb: var(--brand-yellow-500-rgb);
+
+  --accent-soft: rgba(var(--brand-yellow-500-rgb), 0.18);
+  --accent-soft-2: rgba(var(--brand-yellow-500-rgb), 0.10);
+
+  /* Borders / radii / shadows */
+  --app-max-width: 1280px;
   --app-gap: var(--space-md, 1rem);
   --app-gap-sm: var(--space-sm, .75rem);
 
-  --layer-surface-bg:#ff9933;
-  --brand-yellow-500: #FFD166;
+  --app-radius: var(--radius-md, 12px);
+  --app-radius-lg: 16px;
 
-  --app-radius: var(--radius-md, 8px);
-  --app-border: 1px solid var(--layer-surface-border, #e5e7eb);
-  --app-surface: var(--brand-yellow-500, #fff);
-  --app-shadow: var(--layer-surface-shadow, 0 2px 6px rgba(0,0,0,.06));
+  --app-border: 1px solid rgba(255,255,255,var(--glass-border-alpha));
+  --app-border-strong: 1px solid rgba(var(--brand-yellow-500-rgb), 0.35);
+
+  --app-shadow: 0 10px 30px rgba(0,0,0,0.35);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 .25rem rgba(var(--brand-yellow-500-rgb), 0.35);
 }
 
-/* ---------------------------------------------------------
-   App frame
-   --------------------------------------------------------- */
+/* =========================================================
+   02) APP FRAME
+   ========================================================= */
+html, body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background:
+    radial-gradient(1000px 600px at 20% 10%, rgba(var(--accent-rgb), 0.12), transparent 60%),
+    radial-gradient(900px 500px at 85% 35%, rgba(255,255,255,0.06), transparent 55%),
+    linear-gradient(180deg, rgba(var(--app-bg-rgb), 1) 0%, rgba(var(--app-bg-rgb), 0.92) 100%);
+  color: var(--text-on-dark);
+}
+
+/* main container */
 .app {
   max-width: var(--app-max-width);
-  background-color: var(--app-surface);
+  background: transparent; /* background handled by body */
 }
 
 /* Reduce Bootstrap vertical density slightly */
-.app .card-body {
-  padding: .75rem;
+.app .card-body { padding: .85rem; }
+.app .card-header { padding-block: .5rem; }
+
+/* Normalize stacking gaps */
+.app .mb-3 { margin-bottom: .85rem !important; }
+.app .mt-3 { margin-top: .85rem !important; }
+
+/* =========================================================
+   03) GLASS CARDS + TYPOGRAPHY
+   ========================================================= */
+.app .card {
+  border: var(--app-border);
+  border-radius: var(--app-radius-lg);
+  background: rgba(var(--glass-bg-rgb), var(--glass-alpha));
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--app-shadow);
+  color:var(--glass-bg-rgb);
 }
+
 .app .card-header {
-  padding-block: .4rem;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+  background: rgba(var(--glass-bg-rgb), var(--glass-alpha-strong));
+  border-top-left-radius: var(--app-radius-lg);
+  border-top-right-radius: var(--app-radius-lg);
+  color:var(--brand-secondary);
 }
 
-/* Normalize card stacking gaps */
-.app .mb-3 { margin-bottom: .75rem !important; }
-.app .mt-3 { margin-top: .75rem !important; }
+/* Title */
+.app-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-xl);
+  letter-spacing: 0.2px;
+}
 
-/* ---------------------------------------------------------
-   Status + alerts
-   --------------------------------------------------------- */
+/* status line */
 #status {
   font-size: var(--font-sm, .95rem);
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted);
 }
 
-/* ---------------------------------------------------------
-   Sessions list (RIGHT / top)
-   --------------------------------------------------------- */
-#sessions {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: .9rem;
-  line-height: 1.3;
-
-  /* Critical for height control */
-  max-height: 220px;
-  overflow-y: auto;
-}
-
-/* ---------------------------------------------------------
-   Preview area (RIGHT / bottom)
-   --------------------------------------------------------- */
-.preview-img {
-  width: 100%;
-  max-height: 300px;         /* tuned for MBP 16" */
-  object-fit: contain;
-
-  border: var(--app-border);
+/* =========================================================
+   04) FORMS (inputs, selects, range)
+   ========================================================= */
+.form-control,
+.form-select {
+  color: var(--text-on-dark);
   border-radius: var(--app-radius);
-  background: rgba(
-    var(--brand-black-900-rgb, 10,10,10),
-    var(--alpha-xxweak, .08)
-  );
-}
-
-/* Preview info line */
-#previewInfo {
-  font-size: .85rem;
-}
-
-/* ---------------------------------------------------------
-   Thumbnail strip
-   --------------------------------------------------------- */
-.thumb-strip {
-  white-space: nowrap;
-  padding: .5rem !important;
-  max-height: 110px;
-
   border: var(--app-border);
-  border-radius: var(--app-radius);
-  background: var(--app-surface);
+  background: rgba(var(--glass-bg-rgb), 0.08);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
 }
 
-/* Thumbnails themselves (created via JS) */
-.thumb-strip img {
-  height: 72px;
-  object-fit: cover;
+.form-control:disabled {
+  color: rgba(255,255,255,0.65);
+  background: rgba(var(--glass-bg-rgb), 0.05);
+  border: var(--app-border);
 }
 
-/* ---------------------------------------------------------
-   LEFT column (Session Infos + Import)
-   --------------------------------------------------------- */
-dl {
-  margin-bottom: .75rem;
-}
-
-dt {
-  font-weight: 500;
-}
-dd {
-  margin-bottom: .25rem;
+.form-control:focus,
+.form-select:focus {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: var(--focus-ring);
+  outline: none;
 }
 
 /* Session title input */
 #title {
-  font-size: .95rem;
+  font-size: var(--font-lg);
+  font-family: var(--font-heading);
+  color: rgba(var(--accent-rgb), 1);
+  background: rgba(var(--glass-bg-rgb), 0.10);
+  border: var(--app-border-strong);
 }
 
-/* ---------------------------------------------------------
-   Progress bar
-   --------------------------------------------------------- */
+/* =========================================================
+   05) BUTTONS (glass buttons, yellow primary)
+   ========================================================= */
+.btn {
+  border-radius: var(--app-radius);
+  font-family: var(--font-body);
+}
+
+.btn-outline-secondary {
+  color: rgba(255,255,255,0.85);
+  border: var(--app-border);
+  background: rgba(var(--glass-bg-rgb), 0.06);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+.btn-outline-secondary:hover {
+  color: rgba(255,255,255,0.95);
+  border-color: rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--glass-bg-rgb), 0.10);
+}
+
+.btn-primary {
+  color: #0b0b0b;
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
+  background:
+    linear-gradient(180deg,
+      rgba(var(--accent-rgb), 1) 0%,
+      rgba(var(--accent-rgb), 0.85) 100%);
+  box-shadow: 0 10px 22px rgba(var(--accent-rgb), 0.18);
+}
+
+.btn-primary:hover {
+  filter: brightness(1.03);
+}
+
+.btn-outline-danger {
+  border-radius: var(--app-radius);
+}
+
+/* disabled feel */
+.btn:disabled,
+.btn.disabled {
+  opacity: 0.55;
+}
+
+/* =========================================================
+   06) ALERT (camera missing)
+   ========================================================= */
+#cameraAlert {
+  border-radius: var(--app-radius-lg);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--glass-bg-rgb), 0.08);
+  color: var(--text-on-dark);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+#cameraAlert .text-muted {
+  color: rgba(255,255,255,0.70) !important;
+}
+
+/* countdown badge-ish look */
+#cameraPollCountdown {
+  display: inline-block;
+  min-width: 2ch;
+  text-align: center;
+  padding: .15rem .45rem;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.18);
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  color: rgba(var(--accent-rgb), 1);
+}
+
+/* =========================================================
+   07) SESSIONS LIST
+   ========================================================= */
+#sessions {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .92rem;
+  line-height: 1.3;
+  max-height: 220px;
+  overflow-y: auto;
+
+  color: var(--text-on-dark);
+  background: rgba(var(--glass-bg-rgb), 0.06);
+  border: var(--app-border);
+  border-radius: var(--app-radius);
+}
+
+#sessions:focus {
+  box-shadow: var(--focus-ring);
+  border-color: rgba(var(--accent-rgb), 0.55);
+}
+
+/* =========================================================
+   08) PREVIEW + THUMB STRIP
+   ========================================================= */
+.preview-img {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+
+  border: var(--app-border);
+  border-radius: var(--app-radius-lg);
+  background: rgba(var(--glass-bg-rgb), 0.05);
+}
+
+#previewInfo {
+  font-size: .85rem;
+  color: rgba(255,255,255,0.75);
+}
+
+.thumb-strip {
+  white-space: nowrap;
+  padding: .6rem !important;
+  max-height: 110px;
+
+  border: var(--app-border);
+  border-radius: var(--app-radius-lg);
+  background: rgba(var(--glass-bg-rgb), 0.06);
+}
+
+.thumb-strip img {
+  height: 72px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.10);
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.thumb-strip img:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+/* =========================================================
+   09) RANGE SLIDER (gap)
+   ========================================================= */
+.form-range {
+  height: 1.25rem;
+}
+
+/* Webkit track/thumb */
+.form-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.form-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -7px; /* centers thumb */
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 1);
+  border: 1px solid rgba(0,0,0,0.35);
+  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.18);
+}
+
+/* Firefox */
+.form-range::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.form-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 1);
+  border: 1px solid rgba(0,0,0,0.35);
+  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.18);
+}
+
+/* Focus */
+.form-range:focus::-webkit-slider-thumb {
+  box-shadow: var(--focus-ring), 0 8px 18px rgba(var(--accent-rgb), 0.18);
+}
+
+/* Gap legend */
+#gapLegend {
+  color: rgba(255,255,255,0.70);
+}
+
+/* =========================================================
+   10) PROGRESS BAR (glass)
+   ========================================================= */
 progress {
   height: 14px;
+  width: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+  border: var(--app-border);
+  background: rgba(var(--glass-bg-rgb), 0.06);
 }
 
-/* ---------------------------------------------------------
-   Log (kept compact, readable)
-   --------------------------------------------------------- */
-.log {
-  padding: .6rem .75rem;
-  font-size: .8rem;
+/* Webkit */
+progress::-webkit-progress-bar {
+  background: rgba(var(--glass-bg-rgb), 0.06);
+}
+progress::-webkit-progress-value {
+  background: linear-gradient(90deg,
+    rgba(var(--accent-rgb), 0.75),
+    rgba(var(--accent-rgb), 1));
+}
 
-  border-radius: var(--app-radius);
-  background: rgba(
-    var(--brand-black-900-rgb, 10,10,10),
-    var(--alpha-weak, .15)
-  );
+/* Firefox */
+progress::-moz-progress-bar {
+  background: linear-gradient(90deg,
+    rgba(var(--accent-rgb), 0.75),
+    rgba(var(--accent-rgb), 1));
+}
+
+/* =========================================================
+   11) LOG
+   ========================================================= */
+.log {
+  padding: .65rem .85rem;
+  font-size: .82rem;
+
+  border-radius: var(--app-radius-lg);
+  border: var(--app-border);
+  background: rgba(var(--glass-bg-rgb), 0.06);
+  color: rgba(255,255,255,0.80);
 
   max-height: 180px;
   overflow: auto;
 }
 
-/* ---------------------------------------------------------
-   Modal alignment with CI
-   --------------------------------------------------------- */
+/* =========================================================
+   12) MODAL (glass)
+   ========================================================= */
 .modal-content {
-  border: var(--modal-border, var(--app-border));
-  border-radius: var(--modal-radius, var(--app-radius));
-  box-shadow: var(--modal-shadow, var(--app-shadow));
+  border: var(--app-border);
+  border-radius: var(--app-radius-lg);
+  background: rgba(var(--glass-bg-rgb), 0.10);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--app-shadow);
+}
+
+.modal-header,
+.modal-footer {
+  border-color: rgba(255,255,255,0.10);
+}
+
+/* =========================================================
+   13) SMALL POLISH
+   ========================================================= */
+.text-muted {
+  color: rgba(255,255,255,0.70) !important;
+}
+
+.border-primary {
+  border-color: rgba(var(--accent-rgb), 0.60) !important;
 }
