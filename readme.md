@@ -2,7 +2,7 @@
 
 Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zerissen** - alles ist irgendwo.
 
-<p align="center"><em>Storage workflow app (MacOS, Linux, Windows)</em></p>
+<p align="center"><em>Solid Photo Storage workflow app (MacOS, Linux, Windows)</em></p>
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration des Projekts" width="100%">
 
@@ -11,7 +11,7 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 <p align="center">no matter how you change photo devices: Your sessions are captured.</p>
 
 ## Features
-- Software-Agnostic: keine Abhängigkeit durch Struktur-Importe in irgendeines Deiner Bildverarbeitungsprogramme.
+- Skalierbare Langzeitarchivierung - **"Software-Agnostic": keine Abhängigkeit** durch Struktur-Importe in irgendeines Deiner Bildverarbeitungsprogramme.
 - Präsentation von Fotosessions direkt beim Kunden
   - Interaktives "Sessionshaping" in Echtzeit (Data-Driven Zeit-Gap-Slider). Die Abstände zwischen den Aufnahmen clustern den Slider. 
 - Studio: Bilder **aller Kameras / Handys** landen in einer einheitlichen Ordnerstruktur mit logischen Sessionnamen (Default: NAS-Speicherort/Volume/Something/YYYY). Der Zielort ist änderbar.
