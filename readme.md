@@ -28,7 +28,7 @@ Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedene
 ## Next Steps / Future
 
 - 😎 **'Importieren' - Button** anschliessen plus Import in frei definierbare Zielordner
-- Iphone Import
+- Import aus *Iphone* und *Canon-Kameras*
 - Interaktiver Metrik - Graph per Session
 - Update von Sony Custom Settings 
   
