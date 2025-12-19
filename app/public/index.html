@@ -3,157 +3,132 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="style.css" rel="stylesheet">
-
   <title>Studio Helper</title>
 </head>
 
 <body>
-  <!-- Full-width app -->
   <main class="container-fluid px-4 py-4 app">
 
-    <!-- ======================================================
-         HEADER
-         ====================================================== -->
-    <header class="d-flex align-items-center justify-content-between mb-3">
-      <h2 class="m-0 app-title">Fotosession Splitter</h2>
+    <!-- HEADER: compact, meta-rich -->
+    <header class="d-flex align-items-center justify-content-between mb-3 gap-3 flex-wrap">
+      <div class="d-flex align-items-baseline gap-3 flex-wrap">
+        <h2 class="m-0 app-title">Fotosession Explorer</h2>
+
+        <div class="small text-muted d-flex align-items-center gap-3 flex-wrap">
+          <span>Session: <span id="hdrSessionId" class="fw-semibold font-monospace">–</span></span>
+          <span>Bilder: <span id="hdrCount" class="fw-semibold">–</span></span>
+          <span>Zeitraum: <span id="hdrRange" class="fw-semibold">–</span></span>
+          <span>Gap: <span id="hdrGap" class="fw-semibold">–</span></span>
+          <span>Ziel: <span id="hdrDest" class="fw-semibold font-monospace">–</span></span>
+        </div>
+      </div>
+
       <span id="status" class="small text-muted" aria-live="polite"></span>
     </header>
 
-    <!-- ======================================================
-         CAMERA ALERT
-         ====================================================== -->
+    <!-- CAMERA ALERT -->
     <div id="cameraAlert" class="alert alert-danger d-none" role="alert" aria-live="polite">
       <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
         <div class="flex-grow-1">
           <div class="fw-semibold">Keine Kamera verbunden</div>
           <div class="small">
-            Bitte Kamera im <span class="font-monospace">MSC / Mass Storage</span>-Modus verbinden und warten,
+            Verbinde die Kamera im <span class="font-monospace">MSC / Mass Storage</span>-Modus und warte,
             bis sie unter <span class="font-monospace">/Volumes</span> erscheint.
           </div>
         </div>
-
         <div class="small text-muted mt-1">
           Wartezeit: <span id="cameraPollCountdown" class="fw-semibold">0</span>s
         </div>
       </div>
     </div>
 
-    <!-- ======================================================
-         DESTINATION
-         ====================================================== -->
+    <!-- SCAN + GAP (compact) -->
     <section class="card mb-3">
-      <div class="card-body py-2">
-        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
-
-          <div class="d-flex align-items-center gap-2 flex-wrap flex-grow-1">
-            <div class="fw-semibold">Ziel</div>
-
-            <input id="currentDestRoot" class="form-control form-control-sm" style="max-width:520px;" disabled />
-
-            <span id="destModeHint" class="small text-muted"></span>
-            <span id="currentDestInline" class="d-none"></span>
-          </div>
-
-          <div class="d-flex gap-2">
-            <button id="chooseDestBtn" class="btn btn-outline-secondary btn-sm" type="button">
-              Alternatives Ziel wählen…
-            </button>
-            <button id="resetDestBtn" class="btn btn-outline-secondary btn-sm" type="button">
-              Zurücksetzen
-            </button>
-          </div>
-
-        </div>
-      </div>
-    </section>
-
-    <!-- ======================================================
-         SCAN + GAP
-         ====================================================== -->
-    <section class="card mb-3">
-      <div class="card-body">
+      <div class="card-body py-3">
 
         <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
-          <div>
-            <div class="fw-semibold">Scan</div>
-            <div class="small text-muted">Dateien einlesen und Sessions erzeugen</div>
-          </div>
-
-          <button id="scanBtn" class="btn btn-outline-secondary btn-sm" type="button">
-            Scannen
+          <button id="scanBtn" class="btn btn-primary" type="button">
+            Dateien einlesen & Sessions erzeugen
           </button>
+
+          <div class="small text-muted d-flex align-items-center gap-2 flex-wrap">
+            <span class="fw-semibold">Gap</span>
+            <span id="gapValue" class="fw-semibold">–</span>
+          </div>
         </div>
 
-        <div id="gapSliderWrap" class="mt-3">
-          <div class="d-flex align-items-center justify-content-between">
-            <label for="gapSlider" class="form-label mb-0 fw-semibold">
-              Session-Gap <span class="small text-muted fw-normal">(Dauer)</span>
-            </label>
-            <div class="small text-muted">
-              <span id="gapValue" class="fw-semibold">–</span>
-            </div>
-          </div>
-
+        <div id="gapSliderWrap" class="mt-2">
           <input id="gapSlider" class="form-range" type="range" min="0" max="8" step="1" value="4" />
           <div id="gapLegend" class="small text-muted mt-1"></div>
         </div>
 
-        <div class="mt-3">
-          <progress id="progressBar" max="100" class="w-100"></progress>
-        </div>
+        <progress id="progressBar" max="100" class="w-100 mt-2"></progress>
 
       </div>
     </section>
 
-    <!-- ======================================================
-         MAIN TWO-COLUMN GRID (stable vertical layout)
-         ====================================================== -->
+    <!-- MAIN GRID -->
     <section class="row g-3 align-items-stretch">
 
-      <!-- LEFT COLUMN -->
+      <!-- LEFT -->
       <div class="col-12 col-lg-4 d-flex flex-column gap-3">
 
-        <!-- Session Infos -->
+        <!-- Session Infos + Destination (compact header shows meta; body for details + input) -->
         <section class="card">
-          <div class="card-header py-2">
-            <div class="fw-semibold">Session-Infos</div>
+          <div class="card-header py-2 d-flex align-items-center justify-content-between">
+            <div class="fw-semibold">Session</div>
+            <div class="small text-muted d-flex gap-2">
+              <span id="metaStart" class="font-monospace">–</span>
+              <span>→</span>
+              <span id="metaEnd" class="font-monospace">–</span>
+              <span class="ms-2">·</span>
+              <span><span id="metaCount" class="fw-semibold">–</span> Bilder</span>
+            </div>
           </div>
 
           <div class="card-body">
-            <dl class="row small mb-3">
-              <dt class="col-5">Start</dt>
-              <dd class="col-7" id="metaStart">–</dd>
-
-              <dt class="col-5">Ende</dt>
-              <dd class="col-7" id="metaEnd">–</dd>
-
-              <dt class="col-5">Bilder</dt>
-              <dd class="col-7" id="metaCount">–</dd>
-
-              <dt class="col-5">Erstes Bild</dt>
-              <dd class="col-7 font-monospace" id="metaExample">–</dd>
-            </dl>
-
-            <div class="mb-2">
-              <label class="form-label fw-semibold mb-1" for="title">Session-Titel</label>
-              <input id="title" class="form-control" />
+            <div class="small text-muted mb-2">
+              Erstes Bild: <span id="metaExample" class="font-monospace">–</span>
             </div>
 
-            <div class="d-grid mt-3">
-              <button id="importBtn" class="btn btn-primary" type="button">
-                Importieren
-              </button>
+            <label class="form-label fw-semibold mb-1" for="title">Session-Titel</label>
+            <input id="title" class="form-control" />
+
+            <!-- Destination -->
+            <div class="mt-3">
+              <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                <div class="fw-semibold">Ziel</div>
+                <span id="destModeHint" class="small text-muted"></span>
+              </div>
+
+              <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
+                <input id="currentDestRoot" class="form-control form-control-sm font-monospace" disabled />
+                <button id="chooseDestBtn" class="btn btn-outline-secondary btn-sm" type="button">
+                  Alternative…
+                </button>
+                <button id="resetDestBtn" class="btn btn-outline-secondary btn-sm" type="button">
+                  Reset
+                </button>
+              </div>
+
+              <span id="currentDestInline" class="d-none"></span>
             </div>
+
+            <button id="importBtn" class="btn btn-primary w-100 mt-3" type="button">
+              Importieren
+            </button>
           </div>
         </section>
 
-        <!-- Sessions list (below infos) -->
+        <!-- Sessions list -->
         <section class="card flex-grow-1">
-          <div class="card-header py-2">
+          <div class="card-header py-2 d-flex align-items-center justify-content-between">
             <div class="fw-semibold">Sessions</div>
+            <div class="small text-muted">
+              Ausgewählt: <span id="hdrSessionSelect" class="fw-semibold font-monospace">–</span>
+            </div>
           </div>
           <div class="card-body h-100">
             <select id="sessions" size="12" class="form-select font-monospace h-100"></select>
@@ -162,18 +137,16 @@
 
       </div>
 
-      <!-- RIGHT COLUMN -->
+      <!-- RIGHT -->
       <div class="col-12 col-lg-8 d-flex flex-column">
-
-        <!-- Preview card should stick to top and fill column height -->
         <section class="card h-100">
-          <div class="card-header py-2 d-flex align-items-center justify-content-between">
-
-            <!-- Title + exposure inline -->
-          <div class="fw-semibold d-flex align-items-center gap-2">
-  <span>Preview</span>
-  <span id="previewExposure" class="preview-exposure" aria-live="polite"></span>
-</div>
+          <div class="card-header py-2 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <div class="d-flex align-items-baseline gap-2 flex-wrap">
+              <div class="fw-semibold">Preview</div>
+              <span id="previewExposure" class="small text-muted" aria-live="polite"></span>
+              <span class="small text-muted">·</span>
+              <span id="previewMeta" class="small text-muted font-monospace">–</span>
+            </div>
 
             <button id="deleteBtn" class="btn btn-outline-danger btn-sm" type="button">
               Delete image
@@ -181,19 +154,16 @@
           </div>
 
           <div class="card-body d-flex flex-column">
-
             <div class="preview-frame mb-2">
               <img id="preview" class="img-fluid preview-img" alt="Preview" />
             </div>
 
-            <div id="previewInfo" class="small text-monospace text-muted mb-3"></div>
-
-            <!-- Thumb strip at bottom, scrollable -->
+            <div id="previewInfo" class="small text-monospace text-muted mb-2"></div>
             <div id="thumbStrip" class="thumb-strip d-flex gap-2 overflow-auto border rounded p-2 mt-auto"></div>
           </div>
         </section>
-
       </div>
+
     </section>
 
     <!-- LOG -->

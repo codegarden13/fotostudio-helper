@@ -12,6 +12,7 @@
  * - Render session list, meta info, preview + thumbnails
  * - Fetch + show exposure (shutter/aperture/ISO) for the currently previewed file
  * - Delete current image and keep the current session selected
+ * - Import selected session (POST /api/import with sessionStart+sessionEnd)
  * - Poll scan progress and update progress bar
  */
 
@@ -23,24 +24,16 @@ const APP = {
   PROGRESS_POLL_MS: 250,
 
   // Camera poll
-  CAMERA_POLL_MS: 2000,          // hit /api/camera every 2s
-  CAMERA_ELAPSED_TICK_MS: 250,   // update elapsed label 4x/sec
+  CAMERA_POLL_MS: 2000,
+  CAMERA_ELAPSED_TICK_MS: 250,
 
   // Gap preset generation
   GAP_PRESET_STEPS: 11,
   GAP_PRESET_TOP_K: 6,
   GAP_MIN_FLOOR_MS: 1000,
 
-  // Slider fallback (usable before first scan)
-  FALLBACK_GAP_PRESETS_MS: [
-    5_000,
-    15_000,
-    30_000,
-    60_000,
-    5 * 60_000,
-    30 * 60_000,
-    2 * 60 * 60_000,
-  ],
+  // Slider fallback
+  FALLBACK_GAP_PRESETS_MS: [5_000, 15_000, 30_000, 60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000],
 };
 
 console.log("[app.js] loaded", new Date().toISOString());
@@ -62,6 +55,14 @@ const els = {
   chooseDestBtn: document.getElementById("chooseDestBtn"),
   resetDestBtn: document.getElementById("resetDestBtn"),
 
+  // Header meta (new compact header)
+  hdrSessionId: document.getElementById("hdrSessionId"),
+  hdrCount: document.getElementById("hdrCount"),
+  hdrRange: document.getElementById("hdrRange"),
+  hdrGap: document.getElementById("hdrGap"),
+  hdrDest: document.getElementById("hdrDest"),
+  hdrSessionSelect: document.getElementById("hdrSessionSelect"),
+
   // Camera status
   cameraAlert: document.getElementById("cameraAlert"),
   cameraPollCountdown: document.getElementById("cameraPollCountdown"),
@@ -75,10 +76,11 @@ const els = {
   sessions: document.getElementById("sessions"),
   preview: document.getElementById("preview"),
   previewExposure: document.getElementById("previewExposure"),
+  previewMeta: document.getElementById("previewMeta"), // new
   previewInfo: document.getElementById("previewInfo"),
   thumbStrip: document.getElementById("thumbStrip"),
 
-  // Meta
+  // Meta (still used in left card header + example line)
   metaStart: document.getElementById("metaStart"),
   metaEnd: document.getElementById("metaEnd"),
   metaCount: document.getElementById("metaCount"),
@@ -96,44 +98,26 @@ const els = {
    ====================================================== */
 
 const state = {
-  // Raw scan output (sorted by ts ASC)
   scanItems: [],
-
-  // Derived sessions
   sessions: [],
-
-  // Current image in preview
   currentFilePath: null,
 
-  // Busy flags
   busy: { scanning: false, importing: false, deleting: false },
 
-  // Scan progress polling
   progressTimer: null,
-
-  // Camera polling
   cameraPollTimer: null,
   cameraElapsedTimer: null,
-
-  // Camera /api/camera request guard
   cameraCheckInFlight: false,
-
-  // Last camera result
   cameraLast: { connected: false, label: "" },
-
-  // Elapsed wait time (starts when we detect disconnected)
   cameraWaitSinceMs: 0,
 
-  // Import target
   defaultTargetRoot: null,
   currentTargetRoot: null,
 
-  // Gap slider model
   gapPresetsMs: [],
   gapPresetIndex: 0,
   gapMs: 30 * 60 * 1000,
 
-  // Title behavior
   userTouchedTitle: false,
 };
 
@@ -166,7 +150,7 @@ function setLog(v) {
 
 function logLine(...parts) {
   if (!els.log) return;
-  const ts = new Date().toISOString().slice(11, 19); // HH:MM:SS
+  const ts = new Date().toISOString().slice(11, 19);
   const msg = parts.map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join(" ");
   els.log.textContent += `[${ts}] ${msg}\n`;
   els.log.scrollTop = els.log.scrollHeight;
@@ -174,7 +158,6 @@ function logLine(...parts) {
 
 function setBusy({ scanning = false, importing = false, deleting = false } = {}) {
   state.busy = { scanning: !!scanning, importing: !!importing, deleting: !!deleting };
-  // Note: camera connectivity gating happens in uiSetCamera()
   if (els.scanBtn) els.scanBtn.disabled = !!scanning;
   if (els.importBtn) els.importBtn.disabled = !!importing;
   if (els.deleteBtn) els.deleteBtn.disabled = !!deleting;
@@ -206,6 +189,17 @@ function msToLabel(ms) {
   return `${Math.round(mo)}mo`;
 }
 
+function fmtRange(start, end) {
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "–";
+  const a = fmt(start);
+  const b = fmt(end);
+  // compact: show date once if same date
+  const dayA = a.slice(0, 10);
+  const dayB = b.slice(0, 10);
+  if (dayA === dayB) return `${dayA} ${a.slice(11)}–${b.slice(11)}`;
+  return `${a}–${b}`;
+}
+
 /* ======================================================
    05) API
    ====================================================== */
@@ -221,10 +215,6 @@ async function fetchJson(url, init) {
    06) UI RENDERERS
    ====================================================== */
 
-/* -------------------------------
-   Camera status + elapsed wait
--------------------------------- */
-
 function uiSetCamera(connected, label = "") {
   setText(els.status, connected ? `Camera: ${label}` : "No camera connected");
   els.status?.classList.toggle("text-danger", !connected);
@@ -233,6 +223,7 @@ function uiSetCamera(connected, label = "") {
 
   if (els.scanBtn) els.scanBtn.disabled = !connected || !!state.busy.scanning;
   if (els.deleteBtn) els.deleteBtn.disabled = !connected || !!state.busy.deleting;
+  if (els.importBtn) els.importBtn.disabled = !connected || !!state.busy.importing;
 
   if (!connected && els.progressBar) els.progressBar.value = 0;
 }
@@ -241,29 +232,41 @@ function uiSetCameraElapsed(secondsElapsed) {
   if (!els.cameraPollCountdown) return;
   const s = Math.max(0, Math.floor(secondsElapsed));
   const next = String(s);
-  if (els.cameraPollCountdown.textContent !== next) {
-    els.cameraPollCountdown.textContent = next;
-  }
+  if (els.cameraPollCountdown.textContent !== next) els.cameraPollCountdown.textContent = next;
 }
 
 function renderCameraElapsed() {
-  // If connected: show 0s (or you can clear it)
-  if (state.cameraLast?.connected) {
-    uiSetCameraElapsed(0);
-    return;
-  }
-
-  if (!state.cameraWaitSinceMs) {
-    uiSetCameraElapsed(0);
-    return;
-  }
-
-  const elapsedSec = (Date.now() - state.cameraWaitSinceMs) / 1000;
-  uiSetCameraElapsed(elapsedSec);
+  if (state.cameraLast?.connected) return uiSetCameraElapsed(0);
+  if (!state.cameraWaitSinceMs) return uiSetCameraElapsed(0);
+  uiSetCameraElapsed((Date.now() - state.cameraWaitSinceMs) / 1000);
 }
 
 /* -------------------------------
-   Target / sessions / meta
+   Header meta (wired to new HTML)
+-------------------------------- */
+
+function uiRenderHeaderMeta(session = null) {
+  // session meta
+  setText(els.hdrSessionId, session ? String(session.id ?? "–") : "–");
+  setText(els.hdrCount, session ? String(session.count ?? "–") : "–");
+  setText(els.hdrRange, session ? fmtRange(session.start, session.end) : "–");
+
+  // gap meta
+  setText(els.hdrGap, state.gapMs ? msToLabel(state.gapMs) : "–");
+
+  // destination meta
+  const effective = state.currentTargetRoot || state.defaultTargetRoot || "";
+  setText(els.hdrDest, effective || "–");
+
+  // selection display
+  if (els.hdrSessionSelect && els.sessions) {
+    const idx = els.sessions.selectedIndex;
+    setText(els.hdrSessionSelect, idx >= 0 ? String(idx + 1).padStart(2, "0") : "–");
+  }
+}
+
+/* -------------------------------
+   Target
 -------------------------------- */
 
 function uiRenderTarget() {
@@ -277,24 +280,35 @@ function uiRenderTarget() {
     state.currentTargetRoot !== state.defaultTargetRoot;
 
   setText(els.destModeHint, isOverride ? "Export-Workflow aktiv" : "");
+
+  uiRenderHeaderMeta(getSelectedSession());
 }
+
+/* -------------------------------
+   Sessions list + meta
+-------------------------------- */
 
 function uiRenderSessions(list) {
   if (!els.sessions) return;
   clearEl(els.sessions);
 
   list.forEach((s, i) => {
-    els.sessions.add(
-      new Option(
-        `${String(i + 1).padStart(2, "0")} | ${fmt(s.start)} – ${fmt(s.end)} | ${s.count}`,
-        String(i)
-      )
-    );
+    const label = `${String(i + 1).padStart(2, "0")} | ${fmtRange(s.start, s.end)} | ${s.count}`;
+    els.sessions.add(new Option(label, String(i)));
   });
+
+  uiRenderHeaderMeta(getSelectedSession());
 }
 
 function uiRenderSessionMeta(s) {
-  if (!s) return;
+  if (!s) {
+    setText(els.metaStart, "–");
+    setText(els.metaEnd, "–");
+    setText(els.metaCount, "–");
+    setText(els.metaExample, "–");
+    uiRenderHeaderMeta(null);
+    return;
+  }
 
   setText(els.metaStart, fmt(s.start));
   setText(els.metaEnd, fmt(s.end));
@@ -304,10 +318,12 @@ function uiRenderSessionMeta(s) {
   if (els.title && !state.userTouchedTitle) {
     els.title.value = `${fmt(s.start).slice(0, 10)} – ${s.count} files`;
   }
+
+  uiRenderHeaderMeta(s);
 }
 
 /* -------------------------------
-   Exposure line (in header text)
+   Exposure line
 -------------------------------- */
 
 function formatExposureParts({ shutter, aperture, iso } = {}) {
@@ -319,26 +335,21 @@ function formatExposureParts({ shutter, aperture, iso } = {}) {
 }
 
 function uiSetExposureNone() {
-  if (!els.previewExposure) return;
-  els.previewExposure.textContent = "Wait ...";
+  if (els.previewExposure) els.previewExposure.textContent = "Wait ...";
 }
 
 function uiSetExposureLoading() {
-  if (!els.previewExposure) return;
-  els.previewExposure.textContent = " loading  ⏱ …   ƒ/…   ISO …";
+  if (els.previewExposure) els.previewExposure.textContent = " loading  ⏱ …   ƒ/…   ISO …";
 }
 
 function uiSetExposureError() {
-  if (!els.previewExposure) return;
-  els.previewExposure.textContent = " Error   ⏱ –   ƒ/–   ISO –";
+  if (els.previewExposure) els.previewExposure.textContent = " Error   ⏱ –   ƒ/–   ISO –";
 }
 
 function uiSetExposureText(exp) {
   if (!els.previewExposure) return;
-
   const parts = formatExposureParts(exp);
-  const tail = parts.length ? `   ${parts.join("   ")}` : "";
-  els.previewExposure.textContent = `${tail}`;
+  els.previewExposure.textContent = parts.length ? `   ${parts.join("   ")}` : "";
 }
 
 /* -------------------------------
@@ -376,15 +387,15 @@ async function uiSetCurrentImage(path) {
   if (!path) {
     els.preview?.removeAttribute("src");
     setText(els.previewInfo, "");
+    setText(els.previewMeta, "–");
     uiSetExposureNone();
     return;
   }
 
-  // Fast: show image first
   els.preview.src = `/api/preview?path=${encodeURIComponent(path)}`;
   setText(els.previewInfo, path.split("/").pop());
+  setText(els.previewMeta, path.split("/").pop());
 
-  // Then: fetch exposure
   uiSetExposureLoading();
 
   try {
@@ -448,6 +459,8 @@ function gapSyncFromSlider() {
     const last = msToLabel(state.gapPresetsMs[state.gapPresetsMs.length - 1]);
     els.gapLegend.textContent = `${first} — ${cur} — ${last} (${idx + 1}/${state.gapPresetsMs.length})`;
   }
+
+  uiRenderHeaderMeta(getSelectedSession());
 }
 
 function computeGapPresetsFromItems(
@@ -473,7 +486,8 @@ function computeGapPresetsFromItems(
   const maxDiff = diffs[diffs.length - 1] || minDiff;
 
   function snapUpToRealGap(target) {
-    let lo = 0, hi = diffs.length - 1;
+    let lo = 0,
+      hi = diffs.length - 1;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       if (diffs[mid] < target) lo = mid + 1;
@@ -540,16 +554,14 @@ function restoreSelection({ preferSessionId = null, fallbackPath = null } = {}) 
 
   let idx = -1;
   if (preferSessionId != null) idx = state.sessions.findIndex((s) => String(s.id) === String(preferSessionId));
-  if (idx < 0 && fallbackPath) {
-    idx = state.sessions.findIndex((s) => Array.isArray(s.items) && s.items.includes(fallbackPath));
-  }
+  if (idx < 0 && fallbackPath) idx = state.sessions.findIndex((s) => Array.isArray(s.items) && s.items.includes(fallbackPath));
   if (idx < 0) idx = clamp(els.sessions.selectedIndex, 0, state.sessions.length - 1);
 
   els.sessions.selectedIndex = idx;
 }
 
 /* ======================================================
-   08) FLOWS (config, camera, scan, delete)
+   08) FLOWS (config, camera, scan, import, delete)
    ====================================================== */
 
 async function loadConfig() {
@@ -559,11 +571,6 @@ async function loadConfig() {
   uiRenderTarget();
 }
 
-/**
- * One-shot camera check (guarded).
- * - Starts/stops elapsed timer baseline via state.cameraWaitSinceMs.
- * - Updates ui via uiSetCamera.
- */
 async function checkCameraOnce() {
   if (state.cameraCheckInFlight) return state.cameraLast?.label ?? null;
   state.cameraCheckInFlight = true;
@@ -573,7 +580,6 @@ async function checkCameraOnce() {
     const connected = !!data.connected;
     const label = connected ? String(data.label || "") : "";
 
-    // Wait baseline
     if (!connected) {
       if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
     } else {
@@ -585,7 +591,6 @@ async function checkCameraOnce() {
 
     return connected ? label : null;
   } catch (e) {
-    // treat as disconnected
     if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
     state.cameraLast = { connected: false, label: "" };
     uiSetCamera(false, "");
@@ -600,6 +605,7 @@ function onSessionChange() {
   const s = getSelectedSession();
   uiRenderSessionMeta(s);
   uiRenderPreview(s);
+  uiRenderHeaderMeta(s);
 }
 
 function regroupSessionsAndRerender({ preserveSessionId = null, preservePath = null } = {}) {
@@ -607,6 +613,7 @@ function regroupSessionsAndRerender({ preserveSessionId = null, preservePath = n
     clearEl(els.sessions);
     clearEl(els.thumbStrip);
     uiSetCurrentImage(null);
+    uiRenderHeaderMeta(null);
     return;
   }
 
@@ -631,6 +638,7 @@ function resetScanUiAndState() {
 
   els.preview?.removeAttribute("src");
   setText(els.previewInfo, "");
+  setText(els.previewMeta, "–");
   setLog("");
 
   uiSetExposureNone();
@@ -641,6 +649,7 @@ function resetScanUiAndState() {
   state.userTouchedTitle = false;
 
   els.progressBar?.removeAttribute("value");
+  uiRenderHeaderMeta(null);
 }
 
 async function runScan() {
@@ -664,9 +673,63 @@ async function runScan() {
   } finally {
     stopProgressPolling();
     setBusy({ scanning: false });
-
-    // Re-apply camera gating in case scanBtn was disabled by busy flag
     uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
+  }
+}
+
+/* -------------------------------
+   Import selected session
+-------------------------------- */
+
+async function importSelectedSession() {
+  const s = getSelectedSession();
+  if (!s) return setLog("Import aborted: No session selected.");
+  if (!Array.isArray(s.items) || s.items.length === 0) return setLog("Import aborted: Session has no items.");
+
+  const camLabel = await checkCameraOnce();
+  if (!camLabel) return setLog("Import aborted: No camera detected.");
+
+  const sessionTitle = (els.title?.value || "").trim();
+  const payload = {
+    sessionTitle,
+    sessionStart: s.start,
+    sessionEnd: s.end, // Option A wiring
+    files: s.items,
+  };
+
+  setBusy({ importing: true });
+  logLine("[import] POST /api/import", { title: sessionTitle, count: s.count });
+
+  try {
+    const out = await fetchJson("/api/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    // Optimistic refresh: remove imported items from current scan model and rerender
+    const importedSet = new Set(s.items);
+    state.scanItems = normalizeAndSortItems(state.scanItems.filter((it) => !importedSet.has(it.path)));
+
+    // After removal, pick nearest remaining session (same index) if possible
+    applyScanItemsToUi({ preserveSessionId: null, preservePath: null });
+
+    setLog(
+      `Import OK\n` +
+        `destDir: ${out.destDir || "(unknown)"}\n` +
+        `logFile: ${out.logFile || "(unknown)"}\n` +
+        `sessionId: ${out.sessionId || "(unknown)"}\n` +
+        `copied: ${out.copied ?? "?"}, skipped: ${out.skipped ?? "?"}`
+    );
+
+    logLine("[import] ok", out);
+  } catch (e) {
+    setLog({ error: "Import failed", details: e });
+    logLine("[import] failed", e);
+  } finally {
+    setBusy({ importing: false });
+    uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
+    uiRenderHeaderMeta(getSelectedSession());
   }
 }
 
@@ -709,6 +772,7 @@ async function deleteCurrentImage() {
   } finally {
     setBusy({ deleting: false });
     uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
+    uiRenderHeaderMeta(getSelectedSession());
   }
 }
 
@@ -745,14 +809,8 @@ function stopProgressPolling() {
 
 function startCameraPolling() {
   stopCameraPolling();
-
-  // Run immediately once
   checkCameraOnce();
-
-  // Poll server every 2s
   state.cameraPollTimer = setInterval(checkCameraOnce, APP.CAMERA_POLL_MS);
-
-  // Update elapsed wait label
   state.cameraElapsedTimer = setInterval(renderCameraElapsed, APP.CAMERA_ELAPSED_TICK_MS);
   renderCameraElapsed();
 }
@@ -773,15 +831,16 @@ function stopCameraPolling() {
    ====================================================== */
 
 on(els.scanBtn, "click", runScan);
+on(els.importBtn, "click", importSelectedSession);
 on(els.deleteBtn, "click", deleteCurrentImage);
+
 on(els.sessions, "change", onSessionChange);
 on(els.gapSlider, "input", () => regroupSessionsAndRerender());
-on(els.title, "input", () => { state.userTouchedTitle = true; });
+on(els.title, "input", () => {
+  state.userTouchedTitle = true;
+});
 
-// Boot: make slider draggable before first scan
 uiApplyGapPresets(uniqueSorted(APP.FALLBACK_GAP_PRESETS_MS), { keepNearest: false });
-
-// Boot: config + camera polling
 loadConfig().catch(setLog);
 startCameraPolling();
 
