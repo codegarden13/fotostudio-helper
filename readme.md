@@ -1,7 +1,8 @@
 #  fotostudio-helper
-*Solid Photo Storage workflow app (MacOS, Linux)*
+*Solid MacOS, Linux Photo Storage workflow app (Audience: Fotografen, Studios, Privatanwender)*
 
-Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber verteilt** - alles ist irgendwo. Das kann man ändern ... 
+Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zu verteilt** - alles ist irgendwo. 
+Das kann man zentralisieren ... 
 
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
