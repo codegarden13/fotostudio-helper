@@ -1,10 +1,10 @@
 #  fotostudio-helper
+*Solid Photo Storage workflow app (MacOS, Linux)*
 
 Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber verteilt** - alles ist irgendwo. Das kann man ändern ... 
 
-<p align="center"><em>Solid Photo Storage workflow app (MacOS, Linux)</em></p>
 <p align="center">
-  <img src="./assets/logo.png" alt="Illustration des Projekts" width="100%">
+  <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
 
 </p>
 
@@ -32,7 +32,7 @@ Warten auf Kamera
 ### sichern / exportieren 
 
 
-## Next Steps / Future
+## Upcoming Features
 
 - 😎 **'Importieren' - Button** anschliessen plus Import in frei definierbare Zielordner
 - Farbpalette aus Bildserien/Sessions ableiten (HEX / RGB / HSL)
