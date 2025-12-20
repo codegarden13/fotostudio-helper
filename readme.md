@@ -1,5 +1,5 @@
-#  fotostudio-helper
-*Solid MacOS, Linux Photo Storage workflow app (Audience: Fotografen, Studios, Privatanwender)*
+#  fotostudio-helper (MacOS, Linux, Windows)
+*Solid Photo Storage workflow app (Audience: Fotografen, Studios, Privatanwender)*
 
 Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zu verteilt** - alles ist irgendwo. 
 Das kann man zentralisieren ... 
@@ -12,12 +12,31 @@ Das kann man zentralisieren ...
 <p align="center">No matter how often you switch photo devices: Your sessions are captured.</p>
 
 ## Features
-- Skalierbare Langzeitarchivierung - **"Software-Agnostic": keine Abhängigkeit** durch Struktur-Importe in irgendeines Deiner Bildverarbeitungsprogramme.
-- Präsentation von Fotosessions direkt beim Kunden
-  - Interaktives "Sessionshaping" in Echtzeit (Data-Driven Zeit-Gap-Slider). Die Abstände zwischen den Aufnahmen clustern den Slider. 
-- Studio: Bilder **aller Kameras / Handys** landen in einer einheitlichen Ordnerstruktur mit logischen Sessionnamen (Default: NAS-Speicherort/Volume/Something/YYYY). Der Zielort ist änderbar.
-  - Fotosessions werden für den Import interaktiv definiert, (optional) speziell benannt und sind im Session-Export namentlich sichtbar.
-  - Prinzipell kann **jeder** gemountete Datenträger eingelesen werden, auch ein USB-Stick. Fotostudio-helper muss auf DEINE Devices konfiguriert werden. Einbinden weiterer spezielle Profile kannst Du selbst - daneben biete ich es als Dienstleistung an. Aktueller Default und Schwerpunkt: Sony Kameras.
+
+### Skalierbare Langzeitarchivierung
+- **Software-agnostisch:** keine Bindung an ein bestimmtes Bildbearbeitungs- oder Asset-Management-System  
+- Einheitliche, stabile Ordnerstruktur als langfristige Quelle der Wahrheit
+
+### Präsentation von Fotosessions beim Kunden
+- **Interaktives Session-Shaping in Echtzeit**
+- Datengetriebener Zeit-Gap-Slider: reale Aufnahmeabstände bestimmen die Clusterung
+
+### Einheitliche Ordnerstruktur für alle Kameras & Handys
+- Bilder aller Geräte landen in **einer konsistenten Struktur**
+- Logische Sessionnamen (Default: `<Target>/<YYYY>/<MM>/<YYYY-MM-DD Titel>`)
+- Ziel-Volume und Root jederzeit änderbar
+
+### Fotosession-Import
+- Sessions werden **interaktiv definiert**
+- Optional frei benennbar
+- Sessionnamen bleiben im Zielarchiv vollständig erhalten und sichtbar
+
+### Andere Datenträger / Erweiterbarkeit
+- Jeder **gemountete Datenträger** kann als Quelle dienen (Kamera, NAS, USB-Stick)
+- Konfiguration ist **geräte- und workflow-spezifisch**
+- Zusätzliche Kamera-Profile können selbst ergänzt werden  
+  (oder als Dienstleistung umgesetzt)
+- Aktueller Schwerpunkt: **Sony Kameras**
 
 ## Usage
 
