@@ -15,25 +15,24 @@ Das kann man zentralisieren ...
 
 ### Skalierbare Langzeitarchivierung
 - **Software-agnostisch:** keine Bindung an ein bestimmtes Bildbearbeitungs- oder Asset-Management-System  
-- Einheitliche, stabile Ordnerstruktur als langfristige Quelle der Wahrheit
+- Einheitliche, stabile Ordnerstruktur als langfristige "Quelle der Wahrheit"
 
 ### Präsentation von Fotosessions beim Kunden
-- **Interaktives Session-Shaping in Echtzeit**
+- Interaktives Session-Shaping in Echtzeit
 - Datengetriebener Zeit-Gap-Slider: reale Aufnahmeabstände bestimmen die Clusterung
 
 ### Einheitliche Ordnerstruktur für alle Kameras & Handys
 - Bilder aller Geräte landen in **einer konsistenten Struktur**
 - Logische Sessionnamen (Default: `<Target>/<YYYY>/<MM>/<YYYY-MM-DD Titel>`)
-- Ziel-Volume und Root jederzeit änderbar
+- Ziel-Volume und Root in der GUI änderbar
 
 ### Fotosession-Import
-- Sessions werden **interaktiv definiert**
-- Optional frei benennbar
-- Sessionnamen bleiben im Zielarchiv vollständig erhalten und sichtbar
+- Sessions werden werden nach den Scan **interaktiv** definiert und optional frei benannt
+- Sessionnamen werden im Zielarchiv als Ordner sichtbar
 
 ### Andere Datenträger / Erweiterbarkeit
 - Jeder **gemountete Datenträger** kann als Quelle dienen (Kamera, NAS, USB-Stick)
-- Konfiguration ist **geräte- und workflow-spezifisch**
+- Konfiguration ist **Geräte- und workflow-spezifisch**
 - Zusätzliche Kamera-Profile können selbst ergänzt werden  
   (oder als Dienstleistung umgesetzt)
 - Aktueller Schwerpunkt: **Sony Kameras**
