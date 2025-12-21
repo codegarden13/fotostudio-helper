@@ -208,15 +208,32 @@ async function fetchJson(url, init) {
 ====================================================== */
 
 function uiSetCamera(connected, label = "") {
-  setText(els.status, connected ? `Camera: ${label}` : "No camera connected");
-  els.status?.classList.toggle("text-danger", !connected);
+
+  /* decides text + classes, then updates dependent UI. */
+  const statusEl = els.status;
+
+  const text = connected
+    ? `Camera: ${label}`
+    : "Keine Kamera / definierter Datenträger";
+
+  setText(statusEl, text);
+
+  // Visual state (use your magenta class if you added it)
+  statusEl?.classList.toggle("camera-disconnected", !connected);
+  statusEl?.classList.toggle("text-muted", connected);
+
+  // If you still rely on Bootstrap danger somewhere, keep this; otherwise remove it.
+  statusEl?.classList.toggle("text-danger", false);
+
+  // Alert visibility
   els.cameraAlert?.classList.toggle("d-none", connected);
 
   // Camera-gated actions
-  if (els.scanBtn) els.scanBtn.disabled = !connected || !!state.busy.scanning;
-  if (els.deleteBtn) els.deleteBtn.disabled = !connected || !!state.busy.deleting;
+  const busy = state.busy || {};
+  if (els.scanBtn) els.scanBtn.disabled = !connected || !!busy.scanning;
+  if (els.deleteBtn) els.deleteBtn.disabled = !connected || !!busy.deleting;
 
-  // Keep UI consistent when camera disappears
+  // Reset progress when disconnected
   if (!connected && els.progressBar) els.progressBar.value = 0;
 
   // Import requires: camera + session selected + target known + not busy

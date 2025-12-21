@@ -1,4 +1,4 @@
-#  fotostudio-helper (MacOS, Linux, Windows)
+#  fotostudio-helper (MacOS, Linux)
 *Solid Photo Storage workflow app (Audience: Fotografen, Studios, Privatanwender)*
 
 Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zu verteilt** - alles ist irgendwo. 
@@ -85,7 +85,6 @@ Warten auf Kamera
 ![alt text](assets/02_scanDevice.png)
 
 ### Fotosessions justieren und wählen 
-![alt text](assets/2_Scannen.png)
 ### Fotosession optional umbenennen 
 
 ### sichern / exportieren 
