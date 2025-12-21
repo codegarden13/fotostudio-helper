@@ -35,6 +35,7 @@ Es entsteht so eine Struktur im Ziel.
 Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
 
 <details>
+
 ```
 └── 📁2025
     └── 📁08
@@ -57,6 +58,7 @@ Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
             ├── .import.log
         └── .DS_Store
 ```
+
 </details>
 
 ### Andere Datenträger / Erweiterbarkeit
@@ -110,6 +112,7 @@ Warten auf Kamera
 - Node.js >= 18
 
 Installation
+
 ```bash
 git clone https://github.com/codegarden13/fotostudio-helper
 cd studio-helper
