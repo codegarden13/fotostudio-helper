@@ -1,165 +1,224 @@
 // routes/import.js
+//
+// Responsibilities:
+// - POST /api/import
+// - Validate payload
+// - Treat CONFIG.targetRoot as an existing mount (do NOT mkdir it)
+// - Create YYYY/MM/YYYY-MM-DD <title>/{originals,exports}
+// - Copy files into /originals (idempotent; skip if already exists)
+// - Write an import log into the session folder
+
+import os from "os";
 import path from "path";
-import crypto from "crypto";
-import fs from "fs/promises";
+import fsp from "fs/promises";
 
 import { CONFIG } from "../config.js";
 import { safeName } from "../lib/fsutil.js";
-import { copyFileEnsured } from "../lib/import.js";
+import {
+  assertWritableRoot,
+  buildSessionFolders,
+  ensureSessionFolders,
+  copyFileEnsured,
+} from "../lib/import.js";
 
 /* ======================================================
    Helpers
-   ====================================================== */
+====================================================== */
 
-function pad2(n) {
-  return String(n).padStart(2, "0");
+function badRequest(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
 }
 
-function makeSessionId(date) {
-  // Unique and sortable-ish: S-YYYYMMDD-HHMMSS-xxxx
-  const yyyy = date.getFullYear();
-  const mm = pad2(date.getMonth() + 1);
-  const dd = pad2(date.getDate());
-  const hh = pad2(date.getHours());
-  const mi = pad2(date.getMinutes());
-  const ss = pad2(date.getSeconds());
-  const rnd = crypto.randomBytes(2).toString("hex");
-  return `S-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${rnd}`;
+function notSupported(message) {
+  const err = new Error(message);
+  err.code = "NOT_SUPPORTED";
+  err.status = 501;
+  return err;
 }
 
-function toYmdParts(date) {
-  const yyyy = String(date.getFullYear());
-  const mm = pad2(date.getMonth() + 1);
-  const dd = pad2(date.getDate());
-  return { yyyy, mm, dd, day: `${yyyy}-${mm}-${dd}` };
-}
+function toTsMs(value, label) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
 
-function midpointDate(start, end) {
-  return new Date((start.getTime() + end.getTime()) / 2);
-}
-
-async function ensureDir(dir) {
-  await fs.mkdir(dir, { recursive: true });
-}
-
-async function exists(filePath) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function appendLog(logFile, line) {
-  await fs.appendFile(logFile, `${line}\n`, "utf8");
-}
-
-function normalizeTitle(sessionTitle) {
-  return safeName(sessionTitle || "").trim();
-}
-
-function parseDateOrThrow(value, label) {
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) {
-    const err = new Error(`Invalid ${label}`);
-    err.status = 400;
-    throw err;
-  }
-  return d;
+  if (Number.isNaN(d.getTime())) throw badRequest(`Invalid ${label}`);
+  return d.getTime();
 }
 
-function buildDestDir({ targetRoot, dateForPath, sessionId, title }) {
-  const { yyyy, mm, day } = toYmdParts(dateForPath);
-  const dayFolder = title ? `${day}_${sessionId}_${title}` : `${day}_${sessionId}`;
-  return path.join(targetRoot, yyyy, mm, dayFolder);
+function asStringArray(v) {
+  return Array.isArray(v) ? v.map((x) => String(x || "").trim()).filter(Boolean) : [];
+}
+
+function requireSupportedPlatform() {
+  const platform = os.platform(); // "darwin" | "linux" | "win32" | ...
+  if (platform !== "darwin" && platform !== "linux") {
+    throw notSupported(
+      `Import not supported on this platform: ${platform} (supported: darwin, linux)`
+    );
+  }
+  return platform;
 }
 
 /* ======================================================
-   Routes
-   ====================================================== */
+   Payload normalization
+====================================================== */
 
-/**
- * POST /api/import
- *
- * Expected payload:
- * {
- *   sessionTitle: string,
- *   sessionStart: number | string (timestamp),
- *   sessionEnd: number | string (timestamp),   // Option A (midpoint)
- *   files: string[] (absolute source paths)
- * }
- *
- * Behavior:
- * - Uses midpoint of sessionStart/sessionEnd for YYYY/MM/DD placement
- * - Creates: <targetRoot>/YYYY/MM/YYYY-MM-DD_<ID>_<Title?>
- * - Copies files into folder, skipping existing
- * - Writes log into folder: .import.log
- */
+function normalizeImportPayload(body) {
+  const b = body || {};
+
+  const sessionTitleRaw = String(b.sessionTitle || "").trim();
+  const sessionStart = b.sessionStart;
+  const files = asStringArray(b.files);
+
+  if (!files.length) throw badRequest("No files");
+  if (!sessionStart) throw badRequest("Missing sessionStart (first image timestamp)");
+
+  // IMPORTANT: YYYY-MM-DD must come from first image timestamp
+  const firstImageTs = toTsMs(sessionStart, "sessionStart");
+
+  // Title is user-provided; safeName prevents traversal/illegal chars
+  const title = safeName(sessionTitleRaw).trim() || "Untitled";
+
+  return { sessionTitleRaw, firstImageTs, title, files };
+}
+
+/* ======================================================
+   Copy + logging
+====================================================== */
+
+async function copyOriginals({ files, originalsDir }) {
+  const sorted = [...files].sort();
+
+  let copied = 0;
+  let skipped = 0;
+
+  for (const src of sorted) {
+    const dst = path.join(originalsDir, path.basename(src));
+    const { copied: didCopy } = await copyFileEnsured(src, dst);
+    if (didCopy) copied++;
+    else skipped++;
+  }
+
+  return { copied, skipped };
+}
+
+async function writeImportLog({
+  logFile,
+  platform,
+  targetRoot,
+  folders,
+  sessionTitleRaw,
+  firstImageTs,
+  files,
+  copied,
+  skipped,
+}) {
+  const sorted = [...files].sort();
+
+  const lines = [];
+  lines.push(`IMPORT START   ${new Date().toISOString()}`);
+  lines.push(`platform:      ${platform}`);
+  lines.push(`targetRoot:    ${targetRoot}`);
+  lines.push(`sessionDir:    ${folders.sessionDir}`);
+  lines.push(`originalsDir:  ${folders.originalsDir}`);
+  lines.push(`exportsDir:    ${folders.exportsDir}`);
+  lines.push(`sessionTitle:  ${sessionTitleRaw}`);
+  lines.push(`firstImageTs:  ${new Date(firstImageTs).toISOString()}`);
+  lines.push(`fileCount:     ${sorted.length}`);
+  lines.push("");
+
+  // Per-file log (useful for debugging; remove if too verbose)
+  for (const src of sorted) {
+    const dst = path.join(folders.originalsDir, path.basename(src));
+    lines.push(`FILE          ${src} -> ${dst}`);
+  }
+
+  lines.push("");
+  lines.push(`RESULT copied=${copied} skipped=${skipped}`);
+  lines.push(`IMPORT END     ${new Date().toISOString()}`);
+
+  await fsp.writeFile(logFile, `${lines.join("\n")}\n`, "utf8");
+}
+
+/* ======================================================
+   Error mapping (single place)
+====================================================== */
+
+function sendImportError(res, err) {
+  const code = err?.code || err?.cause?.code;
+
+  // Prefer explicit statuses
+  let status =
+    Number.isInteger(err?.status) ? err.status :
+    code === "NOT_SUPPORTED" ? 501 :
+    code === "NOT_WRITABLE" || code === "EACCES" ? 403 :
+    code === "ENOENT" ? 409 : // usually "not mounted" in your context
+    500;
+
+  return res.status(status).json({
+    error: "Import failed",
+    details: { error: String(err?.message || err), code },
+  });
+}
+
+/* ======================================================
+   Route registration
+====================================================== */
+
 export function registerImportRoutes(app) {
   app.post("/api/import", async (req, res) => {
     try {
-      const { sessionTitle, sessionStart, sessionEnd, files } = req.body || {};
+      // Mandatory platform gate: macOS + Linux only
+      const platform = requireSupportedPlatform();
 
-      if (!Array.isArray(files) || files.length === 0) {
-        return res.status(400).json({ error: "No files" });
-      }
+      // Normalize payload
+      const payload = normalizeImportPayload(req.body);
 
-      const title = normalizeTitle(sessionTitle);
-      const start = parseDateOrThrow(sessionStart, "sessionStart");
+      // Root must exist (mounted) + be writable; do NOT mkdir root
+      const targetRoot = await assertWritableRoot(CONFIG.targetRoot);
 
-      // Option A: midpoint policy (if sessionEnd missing, fall back to start)
-      const end = sessionEnd ? parseDateOrThrow(sessionEnd, "sessionEnd") : start;
-      const mid = midpointDate(start, end);
-
-      const sessionId = makeSessionId(start);
-      const destDir = buildDestDir({
-        targetRoot: CONFIG.targetRoot,
-        dateForPath: mid,
-        sessionId,
-        title,
+      // Build + create:
+      // /<root>/YYYY/MM/YYYY-MM-DD <title>/{originals,exports}
+      const folders = buildSessionFolders({
+        targetRoot,
+        firstImageTs: payload.firstImageTs,
+        title: payload.title,
       });
 
-      await ensureDir(destDir);
+      await ensureSessionFolders(folders);
 
-      const logFile = path.join(destDir, ".import.log");
-      const sortedFiles = [...files].sort();
+      // Copy into originals (idempotent)
+      const result = await copyOriginals({
+        files: payload.files,
+        originalsDir: folders.originalsDir,
+      });
 
-      await appendLog(logFile, `IMPORT START   ${new Date().toISOString()}`);
-      await appendLog(logFile, `destDir:       ${destDir}`);
-      await appendLog(logFile, `sessionTitle:  ${sessionTitle || ""}`);
-      await appendLog(logFile, `sessionStart:  ${start.toISOString()}`);
-      await appendLog(logFile, `sessionEnd:    ${end.toISOString()}`);
-      await appendLog(logFile, `sessionMid:    ${mid.toISOString()}`);
-      await appendLog(logFile, `sessionId:     ${sessionId}`);
-      await appendLog(logFile, `fileCount:     ${sortedFiles.length}`);
-      await appendLog(logFile, ``);
+      // Write import log into session folder
+      const logFile = path.join(folders.sessionDir, ".import.log");
+      await writeImportLog({
+        logFile,
+        platform,
+        targetRoot,
+        folders,
+        sessionTitleRaw: payload.sessionTitleRaw,
+        firstImageTs: payload.firstImageTs,
+        files: payload.files,
+        ...result,
+      });
 
-      let copied = 0;
-      let skipped = 0;
-
-      for (const src of sortedFiles) {
-        const dst = path.join(destDir, path.basename(src));
-
-        if (await exists(dst)) {
-          skipped++;
-          await appendLog(logFile, `SKIP exists   ${src} -> ${dst}`);
-          continue;
-        }
-
-        await copyFileEnsured(src, dst);
-        copied++;
-        await appendLog(logFile, `COPIED        ${src} -> ${dst}`);
-      }
-
-      await appendLog(logFile, ``);
-      await appendLog(logFile, `RESULT copied=${copied} skipped=${skipped}`);
-      await appendLog(logFile, `IMPORT END     ${new Date().toISOString()}`);
-
-      res.json({ ok: true, destDir, logFile, sessionId, copied, skipped });
+      return res.json({
+        ok: true,
+        targetRoot,
+        sessionDir: folders.sessionDir,
+        originalsDir: folders.originalsDir,
+        exportsDir: folders.exportsDir,
+        logFile,
+        copied: result.copied,
+        skipped: result.skipped,
+      });
     } catch (err) {
-      const status = err?.status && Number.isInteger(err.status) ? err.status : 500;
-      res.status(status).json({ error: String(err?.message || err) });
+      return sendImportError(res, err);
     }
   });
 }

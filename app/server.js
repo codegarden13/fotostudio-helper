@@ -1,47 +1,83 @@
+// app/server.js
+//
+// Server entrypoint
+// - Express app + route registration
+// - Server logfile per start (via createServerLogger)
+// - HTTP access logging to logfile
+// - UI log ingestion endpoint: POST /api/log
+// - Graceful shutdown (server close + exiftool end)
+
 import express from "express";
 import { exiftool } from "exiftool-vendored";
 
-// Detects connected cameras, exposes camera identity and availability to the UI
 import { registerCameraRoutes } from "./routes/camera.js";
-//exif
 import { registerExposureRoutes } from "./routes/exposure.js";
-
-
-
-// Scans the camera filesystem, groups images into time-based sessions,
-// and reports scan progress and session metadata
 import { registerScanRoutes } from "./routes/scan.js";
-
-// Serves image previews to the UI (embedded RAW previews and JPEG files),
-// including caching and format-specific handling
 import { registerPreviewRoutes } from "./routes/preview.js";
-
-// Handles importing sessions into the target archive or export directories,
-// applying naming conventions and destination logic
 import { registerImportRoutes } from "./routes/import.js";
-
-// Allows safe removal of images from the camera during culling,
-// restricted to the detected camera mount and supported file types
 import { registerDeleteRoutes } from "./routes/delete.js";
-
-// Exposes read-only server configuration required by the UI
-// (e.g. default target root and workflow-related settings)
 import { registerConfigRoutes } from "./routes/config.js";
+import { registerTargetRoutes } from "./routes/target.js";
+
+import { createServerLogger } from "./lib/logger.js";
 
 /* ------------------------------------------------------------------ */
-/* App initialization                                                  */
+/* Config                                                             */
 /* ------------------------------------------------------------------ */
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
+/* ------------------------------------------------------------------ */
+/* Logger                                                             */
+/* ------------------------------------------------------------------ */
+/**
+ * NOTE:
+ * Your createServerLogger implementation (as pasted earlier) expects:
+ *   { logsDir, baseName, alsoConsole }
+ * If your local implementation still expects { dir, prefix }, adjust either:
+ * - here (recommended), OR
+ * - add aliases inside createServerLogger.
+ */
+export const LOG = createServerLogger({
+  logsDir: "./logs",
+  baseName: "studio-helper",
+  alsoConsole: true,
+});
+
+// IMPORTANT: open logfile immediately (top-level await is OK in ESM)
+await LOG.init?.();
+
+/* ------------------------------------------------------------------ */
+/* App + middleware                                                    */
+/* ------------------------------------------------------------------ */
+
 const app = express();
 
-// Middleware
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static("public"));
 
+// Access log -> logfile (+ console if enabled)
+app.use((req, res, next) => {
+  const t0 = Date.now();
+  res.on("finish", () => {
+    const ms = Date.now() - t0;
+    LOG.info?.("[http]", {
+      status: res.statusCode,
+      method: req.method,
+      url: req.originalUrl,
+      ms,
+    });
+  });
+  next();
+});
+
+// UI/browser log ingestion (public/logger.js posts here)
+if (typeof LOG.ingestUiLogs === "function") {
+  app.post("/api/log", LOG.ingestUiLogs);
+}
+
 /* ------------------------------------------------------------------ */
-/* Routes (must be registered AFTER app is initialized)                */
+/* Routes                                                              */
 /* ------------------------------------------------------------------ */
 
 registerConfigRoutes(app);
@@ -51,31 +87,44 @@ registerScanRoutes(app);
 registerPreviewRoutes(app);
 registerImportRoutes(app);
 registerDeleteRoutes(app);
+registerTargetRoutes(app);
 
 /* ------------------------------------------------------------------ */
-/* Start                                                              */
+/* Start                                                               */
 /* ------------------------------------------------------------------ */
 
 const server = app.listen(PORT, () => {
-  console.log(`studio-helper running on http://localhost:${PORT}`);
+  LOG.info?.(`studio-helper running on http://localhost:${PORT}`);
 });
 
 /* ------------------------------------------------------------------ */
-/* Shutdown handling (Ctrl+C, docker stop, etc.)                       */
+/* Shutdown + hard error handling                                      */
 /* ------------------------------------------------------------------ */
 
+let shuttingDown = false;
+
 async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
   try {
-    console.log(`\nShutting down (${signal})...`);
+    LOG.warn?.("shutdown begin", { signal });
 
     // Stop accepting new connections
     await new Promise((resolve) => server.close(resolve));
-    console.log("HTTP server closed.");
+    LOG.info?.("http server closed");
 
-    // Ensure exiftool child process is terminated
+    // Terminate exiftool child process
     await exiftool.end();
+    LOG.info?.("exiftool ended");
+
+    // Close logfile stream (if implemented)
+    await LOG.close?.();
+    LOG.info?.("logger closed");
   } catch (err) {
+    // Keep this as console too (in case logger is broken)
     console.error("Shutdown error:", err);
+    LOG.error?.("shutdown error", { err: String(err) });
   } finally {
     process.exit(0);
   }
@@ -86,8 +135,12 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 process.on("unhandledRejection", (err) => {
   console.error("Unhandled promise rejection:", err);
+  LOG.error?.("unhandledRejection", { err: String(err) });
 });
 
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception:", err);
+  LOG.error?.("uncaughtException", { err: String(err) });
+  // Optional: exit fast on uncaught exceptions
+  shutdown("uncaughtException");
 });

@@ -15,7 +15,7 @@
 import path from "path";
 import fsp from "fs/promises";
 import { exiftool } from "exiftool-vendored";
-import { extOf } from "./fsutil.js";
+import { extOf } from "../lib/fsutil.js";
 
 /* ======================================================
    Configuration

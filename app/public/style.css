@@ -1,149 +1,160 @@
 /* =========================================================
    studio-helper / public/style.css
-   Glass theme v2 (Bootstrap 5 “glue”)
+   Glass theme v3 — higher contrast, less “white-on-white”
    Goals:
-   - Stronger “glass” separation (depth + highlight + inner border)
-   - Better readability (controls, titles, headers)
-   - Yellow accent used consistently (tokens), orange only as secondary hint
-   - Keep compact density and full-width app
+   - Darker glass surfaces (readable controls)
+   - Yellow is the primary accent everywhere
+   - Reduce milky overlays; increase separation + hierarchy
    ========================================================= */
 
-/* -------------------------
-   1) Brand + typography tokens
--------------------------- */
+/* =========================================================
+   01) DESIGN TOKENS
+   ========================================================= */
 :root{
-  /* colors */
+  /* Brand colors*/
   --brand-black-900:#0a0a0a;
   --brand-black-900-rgb:10,10,10;
 
   --brand-yellow-500:#ffd166;
   --brand-yellow-500-rgb:255,209,102;
+}
+  /* just for fun: Boss Marker colors */
+ :root {
 
-  --brand-secondary:#f97316;
 
-  /* typography */
-  --font-body:'Work Sans',system-ui,sans-serif;
-  --font-heading:'Quicksand',system-ui,sans-serif;
+  --color-BossPink:        hsl(335, 100%, 59%);
+  --color-BossYellow:      hsl(57, 100%, 50%);
+  --color-BossOrange:      hsl(36, 100%, 50%);
+  --color-BossBlue:        hsl(197, 100%, 50%);
+  --color-BossGreen:       hsl(96, 100%, 50%);
+  --color-BossTurquoise:   hsl(168, 100%, 50%);
+  
+}
+ :root {
+  /* Typography */
+  --font-body:"Work Sans",system-ui,sans-serif;
+  --font-heading:"Quicksand",system-ui,sans-serif;
   --font-body-weight:300;
   --font-heading-weight:700;
 
   --font-sm:clamp(.85rem,1vw,1rem);
   --font-lg:clamp(1.25rem,3vw,2.5rem);
 
-  /* app theme */
+  /* App */
   --app-bg:var(--brand-black-900);
   --app-bg-rgb:var(--brand-black-900-rgb);
 
   --text-on-dark:#f8fafc;
-  --text-muted:rgba(255,255,255,.70);
+  --text-strong:var(--brand-yellow-500);
+  --text-muted:rgba(255,255,255,.68);
+  --text-faint:rgba(255,255,255,.52);
 
+  /* Accent (PRIMARY) */
   --accent:var(--brand-yellow-500);
   --accent-rgb:var(--brand-yellow-500-rgb);
 
-  /* glass primitives */
-  --glass-bg-rgb:255,255,255;
-  --glass-blur:18px;
+  /* Glass base: switch to DARK glass to avoid “white on white” */
+  --glass-bg-rgb: 12,12,12;  /* was 255,255,255 */
+  --glass-blur: 18px;
 
-  /* surface alpha levels */
-  --glass-a:.055;          /* default card */
-  --glass-a-strong:.09;    /* headers */
-  --glass-a-input:.075;    /* form fields */
-  --glass-a-raise:.12;     /* hover/active surfaces */
+  /* Surface alphas (slightly higher because base is dark) */
+  --glass-a: .62;          /* cards */
+  --glass-a-strong: .72;   /* headers */
+  --glass-a-input: .70;    /* inputs */
+  --glass-a-raise: .80;    /* hover/active */
 
-  /* borders (outer + subtle inner highlight) */
-  --glass-border-a:.14;
-  --glass-border-strong-a:.32;
-  --border:1px solid rgba(255,255,255,var(--glass-border-a));
-  --border-strong:1px solid rgba(var(--accent-rgb),var(--glass-border-strong-a));
-  --border-inner:1px solid rgba(255,255,255,.07);
+  /* Borders */
+  --border:1px solid rgba(255,255,255,.10);
+  --border-strong:1px solid rgba(var(--accent-rgb),.38);
+  --border-inner:1px solid rgba(255,255,255,.06);
 
-  /* radii + shadows */
+  /* Radii + shadows */
   --radius:12px;
   --radius-lg:16px;
 
-  --shadow:0 14px 40px rgba(0,0,0,.42);
-  --shadow-soft:0 10px 26px rgba(0,0,0,.30);
+  --shadow:0 14px 44px rgba(0,0,0,.55);
+  --shadow-soft:0 10px 26px rgba(0,0,0,.40);
 
   --focus-ring:0 0 0 .25rem rgba(var(--accent-rgb),.35);
 
-  /* subtle “sheen” */
+  /* Sheen: less milky, more “studio specular” */
   --sheen:linear-gradient(
     135deg,
-    rgba(255,255,255,.14),
-    rgba(255,255,255,.06) 40%,
-    rgba(255,255,255,.02) 70%,
-    rgba(255,255,255,.00)
+    rgba(255,255,255,.08),
+    rgba(255,255,255,.03) 45%,
+    rgba(255,255,255,.00) 72%
   );
 }
 
-/* -------------------------
-   2) Local webfonts
--------------------------- */
+/* =========================================================
+   02) FONTS (local)
+   ========================================================= */
 @font-face{
-  font-family:'Quicksand';
-  src:url('/public/assets/fonts/quicksand/quicksand-700-normal.woff2') format('woff2');
+  font-family:"Quicksand";
+  src:url("/public/assets/fonts/quicksand/quicksand-700-normal.woff2") format("woff2");
   font-weight:700;
   font-style:normal;
   font-display:swap;
 }
 @font-face{
-  font-family:'Work Sans';
-  src:url('/public/assets/fonts/work-sans/work-sans-100-normal.woff2') format('woff2');
+  font-family:"Work Sans";
+  src:url("/public/assets/fonts/work-sans/work-sans-100-normal.woff2") format("woff2");
   font-weight:100;
   font-style:normal;
   font-display:swap;
 }
 
-/* -------------------------
-   3) App frame + background
--------------------------- */
+/* =========================================================
+   03) BASE / APP FRAME
+   ========================================================= */
 html,body{height:100%;}
 body{
   font-family:var(--font-body);
   font-weight:var(--font-body-weight);
   color:var(--text-on-dark);
 
-  /* deeper, more “studio” backdrop with controlled yellow */
+  /* darker backdrop + yellow as primary */
   background:
-    radial-gradient(1200px 700px at 18% 8%, rgba(var(--accent-rgb),.16), transparent 60%),
-    radial-gradient(900px 600px at 85% 20%, rgba(255,255,255,.07), transparent 55%),
-    radial-gradient(700px 500px at 70% 85%, rgba(249,115,22,.06), transparent 55%),
-    linear-gradient(180deg, rgba(var(--app-bg-rgb),1) 0%, rgba(var(--app-bg-rgb),.92) 100%);
+    radial-gradient(1200px 700px at 18% 8%, rgba(var(--accent-rgb),.18), transparent 60%),
+    radial-gradient(900px 600px at 85% 20%, rgba(255,255,255,.06), transparent 55%),
+    linear-gradient(180deg, rgba(var(--app-bg-rgb),1) 0%, rgba(var(--app-bg-rgb),.94) 100%);
 }
+
 .app{max-width:none;width:100%;}
 
-/* Density tweaks (Bootstrap glue) */
+/* Bootstrap density glue */
 .app .card-body{padding:.85rem;}
 .app .card-header{padding-block:.55rem;}
 .app .mb-3{margin-bottom:.85rem !important;}
 .app .mt-3{margin-top:.85rem !important;}
 
-/* -------------------------
-   4) Glass surface primitive (reusable)
--------------------------- */
-.app .card,
-.form-control,
-.form-select,
-#cameraAlert,
-.thumb-strip,
-.log,
-progress,
-.modal-content{
+/* =========================================================
+   04) GLASS PRIMITIVE (DARK GLASS)
+   ========================================================= */
+:where(
+  .app .card,
+  .form-control,
+  .form-select,
+  #cameraAlert,
+  .thumb-strip,
+  .log,
+  progress,
+  .modal-content
+){
   position:relative;
   border:var(--border);
+
+  /* dark translucent panel */
   background:rgba(var(--glass-bg-rgb),var(--glass-a));
-  backdrop-filter:blur(var(--glass-blur)) saturate(130%);
-  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(130%);
+  backdrop-filter:blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(140%);
+
   box-shadow:var(--shadow);
   color:var(--text-on-dark);
 }
 
-/* subtle inner highlight border + sheen for depth */
-.app .card::before,
-#cameraAlert::before,
-.thumb-strip::before,
-.log::before,
-.modal-content::before{
+/* inner highlight + sheen */
+:where(.app .card, #cameraAlert, .thumb-strip, .log, .modal-content)::before{
   content:"";
   position:absolute;
   inset:0;
@@ -151,109 +162,121 @@ progress,
   border:var(--border-inner);
   pointer-events:none;
 }
-.app .card::after,
-#cameraAlert::after,
-.modal-content::after{
+:where(.app .card, #cameraAlert, .modal-content)::after{
   content:"";
   position:absolute;
   inset:0;
   border-radius:inherit;
   background:var(--sheen);
-  opacity:.9;
+  opacity:.95;
   pointer-events:none;
 }
 
+/* =========================================================
+   05) CARDS / HEADERS
+   ========================================================= */
 .app .card{border-radius:var(--radius-lg);}
+
 .app .card-header{
   border-bottom:1px solid rgba(255,255,255,.10);
+
+  /* darker header for hierarchy (less white wash) */
   background:rgba(var(--glass-bg-rgb),var(--glass-a-strong));
   border-top-left-radius:var(--radius-lg);
   border-top-right-radius:var(--radius-lg);
-  color:rgba(255,255,255,.92);
+
+  color:var(--text-strong);
 }
 
-/* Make header titles pop without turning orange everywhere */
-.app .card-header .fw-semibold{
-  color:rgba(255,255,255,.92);
-}
+.app .card-header .fw-semibold{color:var(--text-strong);}
 
-/* -------------------------
-   5) Header typography
--------------------------- */
+/* =========================================================
+   06) APP HEADER
+   ========================================================= */
 .app-title{
   font-family:var(--font-heading);
   font-weight:var(--font-heading-weight);
   font-size:var(--font-lg);
   line-height:1.1;
   letter-spacing:.2px;
+  color:var(--text-strong);
 }
 #status{font-size:var(--font-sm); color:var(--text-muted);}
 
-/* -------------------------
-   6) Forms (more readable)
--------------------------- */
-.form-control,.form-select{
+/* =========================================================
+   07) FORMS (READABLE)
+   ========================================================= */
+.form-control,
+.form-select{
   border-radius:var(--radius);
-  border:var(--border);
+  border:1px solid rgba(255,255,255,.14);
+
+  /* darker fill so text is readable */
   background:rgba(var(--glass-bg-rgb),var(--glass-a-input));
   box-shadow:var(--shadow-soft);
-  color:rgba(255,255,255,.92);
+
+  color:var(--text-strong);
 }
-.form-control::placeholder{color:rgba(255,255,255,.45);}
+
+.form-control::placeholder{color:var(--text-faint);}
+
 .form-control:disabled{
-  color:rgba(255,255,255,.60);
-  background:rgba(var(--glass-bg-rgb),.045);
+  color:rgba(255,255,255,.55);
+  background:rgba(var(--glass-bg-rgb),.55);
 }
-.form-control:focus,.form-select:focus{
+
+.form-control:focus,
+.form-select:focus{
   border-color:rgba(var(--accent-rgb),.60);
   box-shadow:var(--focus-ring);
   outline:none;
 }
 
-/* Session title field as “hero” */
+/* “Hero” title field */
 #title{
   font-family:var(--font-heading);
   font-weight:var(--font-heading-weight);
-  color:rgba(var(--accent-rgb),1);
-  background:rgba(var(--glass-bg-rgb),.11);
+  color:rgb(var(--accent-rgb));
+
+  background:rgba(var(--glass-bg-rgb),.78);
   border:var(--border-strong);
 }
 
-/* -------------------------
-   7) Buttons (cleaner + consistent)
--------------------------- */
+/* =========================================================
+   08) BUTTONS (YELLOW PRIMARY)
+   ========================================================= */
 .btn{border-radius:var(--radius); font-family:var(--font-body);}
+
 .btn-outline-secondary{
-  color:rgba(255,255,255,.88);
-  border:var(--border);
-  background:rgba(var(--glass-bg-rgb),.055);
+  color:var(--text-strong);
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(var(--glass-bg-rgb),.55);
 }
 .btn-outline-secondary:hover{
-  color:rgba(255,255,255,.95);
+  color:var(--text-strong);
   border-color:rgba(var(--accent-rgb),.38);
   background:rgba(var(--glass-bg-rgb),var(--glass-a-raise));
 }
 
 .btn-primary{
   color:rgba(0,0,0,.92);
-  background:rgba(var(--accent-rgb),.98);
-  border:1px solid rgba(var(--accent-rgb),.55);
-  box-shadow:0 14px 30px rgba(var(--accent-rgb),.16);
+  background:rgb(var(--accent-rgb));
+  border:1px solid rgba(var(--accent-rgb),.62);
+  box-shadow:0 14px 30px rgba(var(--accent-rgb),.14);
 }
-.btn-primary:hover{filter:brightness(1.03);}
+.btn-primary:hover{filter:brightness(1.04);}
 .btn:focus{box-shadow:var(--focus-ring) !important;}
 .btn:disabled,.btn.disabled{opacity:.55;}
 
-/* -------------------------
-   8) Camera alert + countdown chip
--------------------------- */
+/* =========================================================
+   09) CAMERA ALERT + WAIT CHIP (YELLOW)
+   ========================================================= */
 #cameraAlert{
   border-radius:var(--radius-lg);
   border:1px solid rgba(var(--accent-rgb),.26);
-  background:rgba(var(--glass-bg-rgb),.07);
-  box-shadow:var(--shadow);
+  background:rgba(var(--glass-bg-rgb),.70);
 }
-#cameraAlert .fw-semibold{color:rgba(255,255,255,.95);}
+#cameraAlert .fw-semibold{color:var(--text-strong);}
 
 #cameraPollCountdown{
   display:inline-block;
@@ -261,124 +284,142 @@ progress,
   text-align:center;
   padding:.15rem .45rem;
   border-radius:999px;
-  background:rgba(var(--accent-rgb),.16);
-  border:1px solid rgba(var(--accent-rgb),.26);
-  color:rgba(var(--accent-rgb),1);
+
+  background:rgba(var(--accent-rgb),.18);
+  border:1px solid rgba(var(--accent-rgb),.32);
+  color:rgb(var(--accent-rgb));
+
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
 }
 
-/* -------------------------
-   9) Sessions list
--------------------------- */
+/* =========================================================
+   10) SESSIONS LIST
+   ========================================================= */
 #sessions{
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
   font-size:.92rem;
   line-height:1.35;
+
   max-height:260px;
   overflow:auto;
-  color:rgba(255,255,255,.92);
-  background:rgba(var(--glass-bg-rgb),.06);
-  border:var(--border);
+
+  color:var(--text-strong);
+  background:rgba(var(--glass-bg-rgb),.62);
+
+  border:1px solid rgba(255,255,255,.14);
   border-radius:var(--radius);
 }
 #sessions:focus{
   box-shadow:var(--focus-ring);
   border-color:rgba(var(--accent-rgb),.55);
 }
+#sessions option:checked{background:rgba(var(--accent-rgb),.22);}
 
-/* nicer selected option feel (browser-dependent, but helps) */
-#sessions option:checked{background:rgba(var(--accent-rgb),.20);}
-
-/* -------------------------
-   10) Preview + exposure + thumbs
--------------------------- */
+/* =========================================================
+   11) PREVIEW + EXPOSURE + THUMBS
+   ========================================================= */
 .preview-img{
   width:100%;
   max-height:72vh;
   object-fit:contain;
-  border:var(--border);
+
+  border:1px solid rgba(255,255,255,.14);
   border-radius:var(--radius-lg);
-  background:rgba(var(--glass-bg-rgb),.045);
+
+  /* darker to avoid “white on white” */
+  background:rgba(var(--glass-bg-rgb),.66);
   box-shadow:var(--shadow-soft);
 }
 
 #previewInfo{
   font-size:.85rem;
-  color:rgba(255,255,255,.75);
+  color:var(--text-muted);
 }
 
 #previewExposure{
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-  color:rgba(var(--accent-rgb),1);
+  color:rgb(var(--accent-rgb));
   font-weight:400;
 }
 
-/* thumbs */
+/* thumb strip */
 .thumb-strip{
   white-space:nowrap;
   padding:.65rem !important;
   max-height:120px;
+
   border-radius:var(--radius-lg);
-  background:rgba(var(--glass-bg-rgb),.06);
+  background:rgba(var(--glass-bg-rgb),.62);
 }
+
 .thumb-strip img{
   height:76px;
   object-fit:cover;
+
   border-radius:12px;
-  border:1px solid rgba(255,255,255,.10);
-  box-shadow:0 8px 18px rgba(0,0,0,.25);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 8px 18px rgba(0,0,0,.30);
+
   transition:transform 120ms ease,border-color 120ms ease,filter 120ms ease;
 }
 .thumb-strip img:hover{
   transform:translateY(-1px);
-  border-color:rgba(var(--accent-rgb),.38);
+  border-color:rgba(var(--accent-rgb),.42);
   filter:brightness(1.03);
 }
 
-/* -------------------------
-   11) Range slider (gap)
--------------------------- */
+/* =========================================================
+   12) RANGE SLIDER (GAP)
+   ========================================================= */
 .form-range{height:1.25rem;}
+
 .form-range::-webkit-slider-runnable-track,
 .form-range::-moz-range-track{
   height:6px;
   border-radius:999px;
-  background:rgba(255,255,255,.16);
+  background:rgba(255,255,255,.14);
   border:1px solid rgba(255,255,255,.10);
 }
+
 .form-range::-webkit-slider-thumb{
   -webkit-appearance:none;
   appearance:none;
   width:18px;height:18px;
   margin-top:-7px;
   border-radius:999px;
-  background:rgba(var(--accent-rgb),1);
+
+  background:rgb(var(--accent-rgb));
   border:1px solid rgba(0,0,0,.35);
-  box-shadow:0 10px 22px rgba(var(--accent-rgb),.16);
+  box-shadow:0 10px 22px rgba(var(--accent-rgb),.14);
 }
 .form-range::-moz-range-thumb{
   width:18px;height:18px;
   border-radius:999px;
-  background:rgba(var(--accent-rgb),1);
-  border:1px solid rgba(0,0,0,.35);
-  box-shadow:0 10px 22px rgba(var(--accent-rgb),.16);
-}
-.form-range:focus::-webkit-slider-thumb{
-  box-shadow:var(--focus-ring),0 10px 22px rgba(var(--accent-rgb),.16);
-}
-#gapLegend{color:rgba(255,255,255,.70);}
 
-/* -------------------------
-   12) Progress + log + modal + small polish
--------------------------- */
+  background:rgb(var(--accent-rgb));
+  border:1px solid rgba(0,0,0,.35);
+  box-shadow:0 10px 22px rgba(var(--accent-rgb),.14);
+}
+
+.form-range:focus::-webkit-slider-thumb{
+  box-shadow:var(--focus-ring),0 10px 22px rgba(var(--accent-rgb),.14);
+}
+
+#gapLegend{color:var(--text-muted);}
+
+/* =========================================================
+   13) PROGRESS + LOG + MODAL
+   ========================================================= */
 progress{
   height:14px;
   border-radius:999px;
   overflow:hidden;
-  background:rgba(var(--glass-bg-rgb),.06);
+
+  background:rgba(var(--glass-bg-rgb),.62);
   box-shadow:var(--shadow-soft);
+  border:1px solid rgba(255,255,255,.12);
 }
-progress::-webkit-progress-bar{background:rgba(var(--glass-bg-rgb),.06);}
+progress::-webkit-progress-bar{background:rgba(var(--glass-bg-rgb),.62);}
 progress::-webkit-progress-value,
 progress::-moz-progress-bar{
   background:linear-gradient(90deg, rgba(var(--accent-rgb),.70), rgba(var(--accent-rgb),1));
@@ -387,18 +428,24 @@ progress::-moz-progress-bar{
 .log{
   padding:.70rem .90rem;
   font-size:.82rem;
+
   border-radius:var(--radius-lg);
-  background:rgba(var(--glass-bg-rgb),.06);
-  color:rgba(255,255,255,.82);
+  background:rgba(var(--glass-bg-rgb),.62);
+  color:rgba(255,255,255,.84);
+
   max-height:200px;
   overflow:auto;
+
   box-shadow:var(--shadow-soft);
 }
 
-.modal-header,.modal-footer{border-color:rgba(255,255,255,.10);}
+.modal-header,
+.modal-footer{border-color:rgba(255,255,255,.10);}
+
+/* Bootstrap utilities alignment */
 .text-muted{color:var(--text-muted) !important;}
 .border-primary{border-color:rgba(var(--accent-rgb),.60) !important;}
 
-/* Optional: tighten default link colors on dark glass */
+/* Links */
 a{color:rgba(var(--accent-rgb),.92);}
 a:hover{color:rgba(var(--accent-rgb),1);}

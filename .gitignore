@@ -5,6 +5,8 @@ _*.md
 # VS Code project settings
 .vscode/
 
+logs/
+
 # Swap files
 *.swp
 

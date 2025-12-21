@@ -1,7 +1,7 @@
 import fsp from "fs/promises";
 import { exiftool } from "exiftool-vendored";
 import { CONFIG } from "../config.js";
-import { ensureDir, previewCachePath } from "./fsutil.js";
+import { ensureDir, previewCachePath } from "../lib/fsutil.js";
 
 export async function extractArwPreview(arwPath) {
   await ensureDir(CONFIG.previewCacheDir);

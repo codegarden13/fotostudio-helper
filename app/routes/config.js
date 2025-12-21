@@ -1,14 +1,25 @@
 // app/routes/config.js
+//
+// GET /api/config
+// Exposes only UI-relevant configuration (no secrets).
+
 import { CONFIG } from "../config.js";
 
 export function registerConfigRoutes(app) {
-  if (!app) throw new Error("registerConfigRoutes(app): app is required");
-
   app.get("/api/config", (_req, res) => {
     res.json({
+      platform: CONFIG.platform,
+      supported: CONFIG.supported,
+      unsupportedReason: CONFIG.unsupportedReason,
+
       targetRoot: CONFIG.targetRoot,
-      sessionGapMinutes: CONFIG.sessionGapMinutes,
+      volumeRoots: CONFIG.volumeRoots,
+
       allowedCameras: CONFIG.allowedCameras,
+      dcimFolder: CONFIG.dcimFolder,
+
+      sessionGapMinutes: CONFIG.sessionGapMinutes,
+      previewCacheDir: CONFIG.previewCacheDir,
     });
   });
 }

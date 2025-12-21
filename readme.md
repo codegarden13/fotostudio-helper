@@ -27,8 +27,10 @@ Das kann man zentralisieren ...
 - Ziel-Volume und Root in der GUI änderbar
 
 ### Fotosession-Import
-- Sessions werden werden nach den Scan **interaktiv** definiert und optional frei benannt
+- Sessions werden werden nach den Scan **interaktiv** definiert und optional benannt
 - Sessionnamen werden im Zielarchiv als Ordner sichtbar
+- Sessionbilder werden auf der Kamera in einen Papierkorb-Ordner gelegt
+- Der Prozess wird in ein Logfile geschrieben
 
 ### Andere Datenträger / Erweiterbarkeit
 - Jeder **gemountete Datenträger** kann als Quelle dienen (Kamera, NAS, USB-Stick)
@@ -41,11 +43,13 @@ Das kann man zentralisieren ...
 
 ### Kamera verbinden
 Warten auf Kamera
-![alt text](assets/screen01.png)
+![alt text](assets/01_volumeWarten.png)
 
 ### Scannen
+![alt text](assets/02_scanDevice.png)
+
 ### Fotosessions justieren und wählen 
-![alt text](assets/screen02.png)
+![alt text](assets/2_Scannen.png)
 ### Fotosession optional umbenennen 
 
 ### sichern / exportieren 
