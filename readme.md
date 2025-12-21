@@ -64,16 +64,19 @@ Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
 ### Andere Datenträger / Erweiterbarkeit
 
 <details>
+
 - Jeder **gemountete Datenträger** kann als Quelle dienen (Kamera, NAS, USB-Stick)
 - Konfiguration ist **Geräte- und workflow-spezifisch**
 - Zusätzliche Kamera-Profile können selbst ergänzt werden  
   (oder als Dienstleistung umgesetzt)
 - Aktueller Schwerpunkt: **Sony Kameras**
+- 
 </details>
 
 ## Usage
 
 <details>
+
 ### Kamera verbinden
 Warten auf Kamera
 ![alt text](assets/01_volumeWarten.png)
@@ -86,6 +89,7 @@ Warten auf Kamera
 ### Fotosession optional umbenennen 
 
 ### sichern / exportieren 
+
 </details>
 
 ## Upcoming Features, Issues
