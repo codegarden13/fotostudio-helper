@@ -31,15 +31,46 @@ Das kann man zentralisieren ...
 - Sessionnamen werden im Zielarchiv als Ordner sichtbar
 - Sessionbilder werden auf der Kamera in einen Papierkorb-Ordner gelegt
 - Der Prozess wird in ein Logfile geschrieben
+Es entsteht so eine Struktur im Ziel. 
+Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
+
+<details>
+```
+└── 📁2025
+    └── 📁08
+        └── 📁2025-08-24 Kamele
+            └── 📁exports
+            └── 📁originals
+                ├── DSC09281.ARW
+                ├── DSC09283.ARW
+                ├── DSC09285.ARW
+            ├── .import.log
+        └── 📁2025-08-24 Kamele Endauswahl
+            └── 📁exports
+            └── 📁originals
+                ├── DSC09271.ARW
+                ├── DSC09273.ARW
+                ├── DSC09275.ARW
+                ├── DSC09277.ARW
+                ├── DSC09279.ARW
+            ├── .DS_Store
+            ├── .import.log
+        └── .DS_Store
+```
+</details>
 
 ### Andere Datenträger / Erweiterbarkeit
+
+<details>
 - Jeder **gemountete Datenträger** kann als Quelle dienen (Kamera, NAS, USB-Stick)
 - Konfiguration ist **Geräte- und workflow-spezifisch**
 - Zusätzliche Kamera-Profile können selbst ergänzt werden  
   (oder als Dienstleistung umgesetzt)
 - Aktueller Schwerpunkt: **Sony Kameras**
+</details>
 
 ## Usage
+
 
 ### Kamera verbinden
 Warten auf Kamera
@@ -57,7 +88,6 @@ Warten auf Kamera
 
 ## Upcoming Features
 
-- 😎 **'Importieren' - Button** anschliessen plus Import in frei definierbare Zielordner
 - Farbpalette aus Bildserien/Sessions ableiten (HEX / RGB / HSL)
 - Import aus *Iphone* und *Canon-Kameras* (, was gemounted ist - USB-Sticks, Iphones, Kameras.
 - Interaktiver Metrik - Graph per Session
