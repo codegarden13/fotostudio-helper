@@ -71,7 +71,7 @@ Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
 
 ## Usage
 
-
+<details>
 ### Kamera verbinden
 Warten auf Kamera
 ![alt text](assets/01_volumeWarten.png)
@@ -84,16 +84,27 @@ Warten auf Kamera
 ### Fotosession optional umbenennen 
 
 ### sichern / exportieren 
+</details>
 
+## Upcoming Features, Issues
 
-## Upcoming Features
+<details>
+
+### Todos
+- Ordnername mit Camerakenner prefixen
+
+### Upcoming / Maybe
 
 - Farbpalette aus Bildserien/Sessions ableiten (HEX / RGB / HSL)
 - Import aus *Iphone* und *Canon-Kameras* (, was gemounted ist - USB-Sticks, Iphones, Kameras.
 - Interaktiver Metrik - Graph per Session
 - Update von Sony Custom Settings 
-  
+
+</details>
+
 ## Installation
+
+<details>
 
 
 - Node.js >= 18
@@ -104,6 +115,9 @@ git clone https://github.com/codegarden13/fotostudio-helper
 cd studio-helper
 npm install
 ```
+
+</details>
+
 Bei Bedarf: 
 
 Sende mir *gerne* einen Serviceauftrag zur Implementierung in Deinem Studio mit Deinen Kameras 😊 - oder eine Tasse Kaffee !
