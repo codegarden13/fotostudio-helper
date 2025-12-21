@@ -1,7 +1,9 @@
 #  fotostudio-helper (MacOS, Linux)
 *Solid Photo Storage workflow app (Audience: Fotografen, Studios, Privatanwender)*
 
-Kennst Du das: *Kameras und Handys in der Familie, Geräte, die bei verschiedenen Cloudanbietern speichern.* **Alles irgendwie da, aber zu verteilt** - alles ist irgendwo. 
+Du kennst das: Einige *Kameras und Handys, die Bilder bei verschiedenen Cloudanbietern speichern.* 
+
+**Alles irgendwie da, aber zu verteilt** - alles ist irgendwo. 
 Das kann man zentralisieren ... 
 
 <p align="center">
@@ -9,7 +11,7 @@ Das kann man zentralisieren ...
 
 </p>
 
-<p align="center">No matter how often you switch photo devices: Your sessions are captured.</p>
+<p align="center">No matter how you switch photo devices: Your sessions are captured.</p>
 
 ## Features
 
@@ -61,19 +63,19 @@ Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
 
 </details>
 
-### Andere Datenträger / Erweiterbarkeit
+### Erweiterbarkeit auf Deine Datenträger
 
 <details>
 
-- Jeder **gemountete Datenträger** kann als Quelle dienen (Kamera, NAS, USB-Stick)
-- Konfiguration ist **Geräte- und workflow-spezifisch**
-- Zusätzliche Kamera-Profile können selbst ergänzt werden  
-  (oder als Dienstleistung umgesetzt)
-- Aktueller Schwerpunkt: **Sony Kameras**
-- 
+- Jeder **gemountete Datenträger** kann als Quelle dienen (Kamera, NAS, USB-Stick, ein Pfad auf Deinem Rechner.) 
+- Die Konfiguration ist **Geräte- und workflow-spezifisch**
+- Zusätzliche (Kamera) -Profile können selbst ergänzt (oder als Dienstleistung umgesetzt) werden  
+ 
+- Aktueller Schwerpunkt: **Sony / Canon Kameras**
+
 </details>
 
-## Usage
+## Benutzeroberfläche, UI, Workflow
 
 <details>
 
