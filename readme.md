@@ -2,9 +2,9 @@
 
 *Solid Photo Storage workflow app (Für Agenturen, Fotografen, Studios)*
 
-Du hast verschiedene Kameras und Handys, die Bilder bei verschiedenen Cloudanbietern speichern. Oder Du bekommst Ordner mit Bildern von irgendwem und über igendwas.
+Du hast *verschiedene Kameras und Handys*, die Bilder bei *verschiedenen Cloudanbietern* speichern. Oder Du bekommst Ordner mit Bildern von *irgendwem* und *über igendwas*. Das kann man zentralisieren.
 
-Das kann man zentralisieren ... Diese App ist mein erster Wokflow dahingehend vor jeglichen "Edits" - oder einfach nur, um Bilder diverser Quellen kompatibel zu Agenturen, Bildeditoren und Datenbanken abzulegen (Industriestandard IPTC/XMP 'Sidecars')
+'fotostudio-helper' ist mein erster Workflow dahingehend vor jeglichen "Edits" - oder nur, um Bilder diverser Quellen kompatibel zu Agenturen, Editoren wie Lightroom oder Photoshop und Bilddatenbanken abzulegen (Industriestandard IPTC/XMP 'Sidecars')
 
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
