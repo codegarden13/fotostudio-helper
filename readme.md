@@ -1,10 +1,10 @@
 #  fotostudio-helper (MacOS, Linux)
-*Solid Photo Storage workflow app (Audience: Fotografen, Studios, Privatanwender)*
 
-Du kennst das: Einige *Kameras und Handys, die Bilder bei verschiedenen Cloudanbietern speichern.* 
+*Solid Photo Storage workflow app (Für Agenturen, Fotografen, Studios)*
 
-**Alles irgendwie da, aber zu verteilt** - alles ist irgendwo. 
-Das kann man zentralisieren ... 
+Du hast verschiedene Kameras und Handys, die Bilder bei verschiedenen Cloudanbietern speichern. Oder Du bekommst Ordner mit Bildern von irgendwem und über igendwas.
+
+Das kann man zentralisieren ... Diese App ist mein erster Wokflow dahingehend vor jeglichen "Edits" - oder einfach nur, um Bilder diverser Quellen kompatibel zu Agenturen, Bildeditoren und Datenbanken abzulegen (Industriestandard IPTC/XMP 'Sidecars')
 
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
@@ -29,41 +29,35 @@ Das kann man zentralisieren ...
 - Ziel-Volume und Root in der GUI änderbar
 
 ### Fotosession-Import
-- Sessions werden werden nach den Scan **interaktiv** definiert und optional benannt
+- Sessions werden werden nach den Scan **interaktiv** mittels Schieberegler "Zeitversatz" definiert und optional benannt
 - Sessionnamen werden im Zielarchiv als Ordner sichtbar
-- Sessionbilder werden auf der Kamera in einen Papierkorb-Ordner gelegt
+- Sessionbilder werden in den Papierkorb gelegt
 - Der Prozess wird in ein Logfile geschrieben
-Es entsteht so eine Struktur im Ziel. 
-Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
+
+![alt text](assets/05_SerieBenennen.png)
+Folgende Struktur entsteht im Ziel (NAS/Mountpoint):
 
 <details>
 
 ```
-└── 📁2025
-    └── 📁08
-        └── 📁2025-08-24 Kamele
+└── 📁2026
+    └── 📁01
+        └── 📁2026-01-03 Moonshine Session 01__SonyA7R
             └── 📁exports
+                └── 📁2026-01-03 Moonshine Session 01__SonyA7R
             └── 📁originals
-                ├── DSC09281.ARW
-                ├── DSC09283.ARW
-                ├── DSC09285.ARW
-            ├── .import.log
-        └── 📁2025-08-24 Kamele Endauswahl
-            └── 📁exports
-            └── 📁originals
-                ├── DSC09271.ARW
-                ├── DSC09273.ARW
-                ├── DSC09275.ARW
-                ├── DSC09277.ARW
-                ├── DSC09279.ARW
-            ├── .DS_Store
-            ├── .import.log
-        └── .DS_Store
+                ├── SonyA7R__DSC05405.ARW
+                ├── SonyA7R__DSC05406.ARW
+                ├── SonyA7R__DSC05407.ARW
+                ├── SonyA7R__DSC05408.ARW
+            └── session.json
 ```
+
+Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
 
 </details>
 
-### Erweiterbarkeit auf Deine Datenträger
+### Datenquellen-Integration
 
 <details>
 
@@ -75,48 +69,13 @@ Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session.
 
 </details>
 
-## Benutzeroberfläche, UI, Workflow
-
-<details>
-
-### Kamera verbinden
-Warten auf Kamera
-![alt text](assets/01_volumeWarten.png)
-
-### Scannen
-![alt text](assets/02_scanDevice.png)
-
-### Fotosessions justieren und wählen 
-### Fotosession optional umbenennen 
-
-### sichern / exportieren 
-
-</details>
-
-## Upcoming Features, Issues
-
-<details>
-
-### Todos
-- Ordnername mit Camerakenner prefixen
-
-### Upcoming / Maybe
-
-- Farbpalette aus Bildserien/Sessions ableiten (HEX / RGB / HSL)
-- Import aus *Iphone* und *Canon-Kameras* (, was gemounted ist - USB-Sticks, Iphones, Kameras.
-- Interaktiver Metrik - Graph per Session
-- Update von Sony Custom Settings 
-
-</details>
 
 ## Installation
 
 <details>
 
-
 - Node.js >= 18
 
-Installation
 
 ```bash
 git clone https://github.com/codegarden13/fotostudio-helper
