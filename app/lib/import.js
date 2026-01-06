@@ -11,6 +11,8 @@ import path from "path";
 import fs from "fs";
 import fsp from "fs/promises";
 
+import { LOG } from "../server.js";
+
 /* ======================================================
    01) Error helper (stable codes + HTTP-ish status hints)
 ====================================================== */
@@ -43,16 +45,6 @@ function requireNonEmptyString(v, { label, code = "BAD_ARGS", status = 400 } = {
    03) Root validation (mount-safe)
 ====================================================== */
 
-/**
- * Ensure targetRoot exists, is a directory, and is writable.
- * IMPORTANT: does not create targetRoot.
- *
- * Errors:
- * - MISSING_ROOT (400)     targetRoot missing/empty
- * - ROOT_NOT_FOUND (409)  not mounted / does not exist
- * - NOT_A_DIRECTORY (409) exists but not a directory
- * - NOT_WRITABLE (403)    exists but not writable
- */
 export async function assertWritableRoot(targetRoot) {
   const root = requireNonEmptyString(targetRoot, {
     label: "Target root",
@@ -108,12 +100,6 @@ export function ymdFromTs(ts) {
   return { yyyy, mm, dd, ymd: `${yyyy}-${mm}-${dd}` };
 }
 
-/**
- * Sanitize a user title for folder names:
- * - trim + collapse whitespace
- * - remove path separators and problematic filesystem chars
- * - keep unicode letters/numbers + a safe punctuation set
- */
 export function sanitizeTitle(input, { fallback = "Untitled", maxLen = 80 } = {}) {
   const s = asTrimmedString(input);
   if (!s) return fallback;
@@ -126,7 +112,8 @@ export function sanitizeTitle(input, { fallback = "Untitled", maxLen = 80 } = {}
     .trim()
     .slice(0, maxLen);
 
-  return out || fallback;
+  const cleaned = out.replace(/[.\s]+$/g, "").trim();
+  return cleaned || fallback;
 }
 
 /* ======================================================
@@ -160,7 +147,7 @@ export function buildSessionFolders({ targetRoot, firstImageTs, title }) {
   const monthDir = path.join(yearDir, parts.mm);
   const sessionDir = path.join(monthDir, sessionDirName);
 
-  return {
+  const folders = {
     yearDir,
     monthDir,
     sessionDir,
@@ -169,6 +156,14 @@ export function buildSessionFolders({ targetRoot, firstImageTs, title }) {
     sessionDirName,
     ymd: parts.ymd,
   };
+
+  LOG.info("[import] buildSessionFolders", {
+  sessionDir: folders.sessionDir,
+  originalsDir: folders.originalsDir,
+  exportsDir: folders.exportsDir,
+});
+
+  return folders;
 }
 
 /**
@@ -178,37 +173,56 @@ export function buildSessionFolders({ targetRoot, firstImageTs, title }) {
 export async function ensureSessionFolders(folders) {
   const yearDir = folders?.yearDir;
   const monthDir = folders?.monthDir;
+  const sessionDir = folders?.sessionDir;
   const originalsDir = folders?.originalsDir;
   const exportsDir = folders?.exportsDir;
 
-  if (!yearDir || !monthDir || !originalsDir || !exportsDir) {
+  if (!yearDir || !monthDir || !sessionDir || !originalsDir || !exportsDir) {
     throw makeErr("ensureSessionFolders(): invalid folders object", {
       code: "BAD_FOLDERS",
       status: 500,
     });
   }
 
-  // mkdir -p style (safe if already exists)
   await fsp.mkdir(yearDir, { recursive: true });
   await fsp.mkdir(monthDir, { recursive: true });
+  await fsp.mkdir(sessionDir, { recursive: true });
   await fsp.mkdir(originalsDir, { recursive: true });
   await fsp.mkdir(exportsDir, { recursive: true });
 
   return folders;
 }
 
+/**
+ * Create: <exportsDir>/<sessionFolderName>/
+ * Example:
+ *   .../exports/2025-08-23 Plant test__SonyA9III/
+ */
+export async function ensureExportSessionFolder(folders) {
+  const exportsDir = folders?.exportsDir;
+  const sessionDir = folders?.sessionDir;
+  if (!exportsDir || !sessionDir) {
+    throw makeErr("ensureExportSessionFolder(): invalid folders object", {
+      code: "BAD_FOLDERS",
+      status: 500,
+    });
+  }
+
+  await fsp.mkdir(exportsDir, { recursive: true });
+
+  const sessionFolderName = path.basename(sessionDir);
+  const exportSessionDir = path.join(exportsDir, sessionFolderName);
+
+  await fsp.mkdir(exportSessionDir, { recursive: true });
+  await fsp.stat(exportSessionDir);
+
+  return exportSessionDir;
+}
+
 /* ======================================================
    06) File copy primitive (idempotent)
 ====================================================== */
 
-/**
- * Copy src -> dst, ensuring the destination directory exists.
- * If dst already exists, skip the copy.
- *
- * Returns:
- *   { copied: true }  if the file was copied
- *   { copied: false } if the destination already existed (skip)
- */
 export async function copyFileEnsured(src, dst) {
   const s = requireNonEmptyString(src, { label: "copyFileEnsured(): src", code: "BAD_ARGS", status: 400 });
   const d = requireNonEmptyString(dst, { label: "copyFileEnsured(): dst", code: "BAD_ARGS", status: 400 });
@@ -222,53 +236,4 @@ export async function copyFileEnsured(src, dst) {
     await fsp.copyFile(s, d);
     return { copied: true };
   }
-}
-
-/* ======================================================
-   07) High-level helper (practical server primitive)
-====================================================== */
-
-/**
- * Import a session's items into the proper structure.
- *
- * Copies into: <sessionDir>/originals
- * Creates: year/month/session/originals/exports
- *
- * @param {object} args
- * @param {string} args.targetRoot   existing mount root (e.g. /Volumes/PhotoRaw)
- * @param {number} args.firstImageTs timestamp (ms) of first image in session
- * @param {string} args.title        user title from input
- * @param {Array<{path:string}>|string[]} args.items files to copy (camera paths or strings)
- * @returns {Promise<{folders, copied, skipped}>}
- */
-export async function importSessionToTarget({ targetRoot, firstImageTs, title, items }) {
-  const root = await assertWritableRoot(targetRoot);
-
-  const folders = buildSessionFolders({
-    targetRoot: root,
-    firstImageTs,
-    title,
-  });
-
-  await ensureSessionFolders(folders);
-
-  const list = Array.isArray(items) ? items : [];
-  const sorted = list
-    .map((it) => (typeof it === "string" ? it : it?.path))
-    .filter(Boolean)
-    .map((p) => String(p).trim())
-    .filter(Boolean)
-    .sort();
-
-  let copied = 0;
-  let skipped = 0;
-
-  for (const src of sorted) {
-    const dst = path.join(folders.originalsDir, path.basename(src));
-    const { copied: didCopy } = await copyFileEnsured(src, dst);
-    if (didCopy) copied++;
-    else skipped++;
-  }
-
-  return { folders, copied, skipped };
 }

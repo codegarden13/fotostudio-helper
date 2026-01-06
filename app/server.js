@@ -25,27 +25,24 @@ import { createServerLogger } from "./lib/logger.js";
 /* Config                                                             */
 /* ------------------------------------------------------------------ */
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+const PORT = Number(process.env.PORT || 3000);
+const PUBLIC_DIR = "public";
+const LOGS_DIR = "./logs";
 
 /* ------------------------------------------------------------------ */
-/* Logger                                                             */
+/* Logger (single instance for whole process)                          */
 /* ------------------------------------------------------------------ */
-/**
- * NOTE:
- * Your createServerLogger implementation (as pasted earlier) expects:
- *   { logsDir, baseName, alsoConsole }
- * If your local implementation still expects { dir, prefix }, adjust either:
- * - here (recommended), OR
- * - add aliases inside createServerLogger.
- */
+
 export const LOG = createServerLogger({
-  logsDir: "./logs",
+  logsDir: LOGS_DIR,
   baseName: "studio-helper",
   alsoConsole: true,
 });
 
-// IMPORTANT: open logfile immediately (top-level await is OK in ESM)
-await LOG.init?.();
+await LOG.init();
+
+// ✅ make logger available to simple helpers (e.g. logLine())
+global.__SERVER_LOGGER__ = LOG;
 
 /* ------------------------------------------------------------------ */
 /* App + middleware                                                    */
@@ -53,25 +50,30 @@ await LOG.init?.();
 
 const app = express();
 
+// Parse JSON first (needed for /api/log and others)
 app.use(express.json({ limit: "2mb" }));
-app.use(express.static("public"));
+
+// Static files
+app.use(express.static(PUBLIC_DIR));
 
 // Access log -> logfile (+ console if enabled)
 app.use((req, res, next) => {
   const t0 = Date.now();
+
   res.on("finish", () => {
     const ms = Date.now() - t0;
-    LOG.info?.("[http]", {
+    LOG.info("[http]", {
       status: res.statusCode,
       method: req.method,
       url: req.originalUrl,
       ms,
     });
   });
+
   next();
 });
 
-// UI/browser log ingestion (public/logger.js posts here)
+// UI/browser log ingestion (optional)
 if (typeof LOG.ingestUiLogs === "function") {
   app.post("/api/log", LOG.ingestUiLogs);
 }
@@ -80,51 +82,60 @@ if (typeof LOG.ingestUiLogs === "function") {
 /* Routes                                                              */
 /* ------------------------------------------------------------------ */
 
-registerConfigRoutes(app);
-registerCameraRoutes(app);
-registerExposureRoutes(app);
-registerScanRoutes(app);
-registerPreviewRoutes(app);
-registerImportRoutes(app);
-registerDeleteRoutes(app);
-registerTargetRoutes(app);
+function registerRoutes(app) {
+  registerConfigRoutes(app);
+  registerCameraRoutes(app);
+  registerExposureRoutes(app);
+  registerScanRoutes(app);
+  registerPreviewRoutes(app);
+  registerImportRoutes(app);
+  registerDeleteRoutes(app);
+  registerTargetRoutes(app);
+}
+
+registerRoutes(app);
 
 /* ------------------------------------------------------------------ */
 /* Start                                                               */
 /* ------------------------------------------------------------------ */
 
 const server = app.listen(PORT, () => {
-  LOG.info?.(`studio-helper running on http://localhost:${PORT}`);
+  LOG.info("server started", { url: `http://localhost:${PORT}` });
 });
 
 /* ------------------------------------------------------------------ */
-/* Shutdown + hard error handling                                      */
+/* Shutdown                                                            */
 /* ------------------------------------------------------------------ */
 
 let shuttingDown = false;
 
-async function shutdown(signal) {
+async function shutdown(reason) {
   if (shuttingDown) return;
   shuttingDown = true;
 
-  try {
-    LOG.warn?.("shutdown begin", { signal });
+  // Always try to log; also mirror to console in case streams are busted.
+  console.log(`[shutdown] begin (${reason})`);
+  LOG.warn("shutdown begin", { reason });
 
+  try {
     // Stop accepting new connections
     await new Promise((resolve) => server.close(resolve));
-    LOG.info?.("http server closed");
+    LOG.info("http server closed");
 
     // Terminate exiftool child process
     await exiftool.end();
-    LOG.info?.("exiftool ended");
+    LOG.info("exiftool ended");
 
-    // Close logfile stream (if implemented)
-    await LOG.close?.();
-    LOG.info?.("logger closed");
+    // Close logfile stream
+    await LOG.close();
+    console.log("[shutdown] logger closed");
   } catch (err) {
-    // Keep this as console too (in case logger is broken)
-    console.error("Shutdown error:", err);
-    LOG.error?.("shutdown error", { err: String(err) });
+    console.error("[shutdown] error:", err);
+    try {
+      LOG.error("shutdown error", { err: String(err?.stack || err) });
+    } catch {
+      // ignore (logger may be dead)
+    }
   } finally {
     process.exit(0);
   }
@@ -134,13 +145,15 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 process.on("unhandledRejection", (err) => {
-  console.error("Unhandled promise rejection:", err);
-  LOG.error?.("unhandledRejection", { err: String(err) });
+  console.error("[process] unhandledRejection:", err);
+  LOG.error("unhandledRejection", { err: String(err?.stack || err) });
 });
 
 process.on("uncaughtException", (err) => {
-  console.error("Uncaught exception:", err);
-  LOG.error?.("uncaughtException", { err: String(err) });
-  // Optional: exit fast on uncaught exceptions
-  shutdown("uncaughtException");
+  console.error("[process] uncaughtException:", err);
+  try {
+    LOG.error("uncaughtException", { err: String(err?.stack || err) });
+  } finally {
+    shutdown("uncaughtException");
+  }
 });

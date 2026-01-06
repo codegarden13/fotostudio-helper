@@ -52,7 +52,7 @@
 
   /* Radii (keep) */
   --radius:12px;
-  --radius-lg:16px;
+  --radius-lg:12px;
 
   /* Status semantic mapping */
   --status-error:var(--color-BossPink);
@@ -63,7 +63,7 @@
 }
 
 /* =======================
-   02) FONTS (keep)
+   02) FONTS 
    IMPORTANT: with express.static("public"), URLs start at /
 ======================= */
 @font-face{
@@ -133,16 +133,9 @@ body{
   border-top-left-radius:var(--radius-lg);
   border-top-right-radius:var(--radius-lg);
 
-
-
-
-  background:
-    linear-gradient(135deg,
-      hsla(var(--status-h), var(--status-s), var(--status-l), .22),
-      rgba(var(--glass-bg-rgb), var(--glass-a-strong)) 60%
-    );
+  
 }
-}
+
 
 /* =======================
    05) STATUS CARDS (robust, no color-mix)
@@ -203,3 +196,50 @@ body{
 ======================= */
 a{color:rgba(var(--accent-rgb),.92);}
 a:hover{color:rgba(var(--accent-rgb),1);}
+
+
+/* =========================
+   Status overlay on cards
+   Usage: <section class="card status" id="cameraCard">...
+   JS toggles: status-ok / status-warn / status-error / status-wait
+   ========================= */
+
+.card.status{
+  position:relative;
+  overflow:hidden;               /* keep tint inside rounded corners */
+  border-left:4px solid rgba(255,255,255,.10);
+}
+
+/* tint layer */
+.card.status::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+  z-index:0;
+  opacity:.18;                   /* global strength */
+  background:transparent;         /* default: off */
+}
+
+/* keep content above tint */
+.card.status > *{ position:relative; z-index:1; }
+
+/* state colors (Boss palette) */
+.card.status-error{ border-left-color: var(--color-BossPink); }
+.card.status-error::after{ background: var(--color-BossPink); }
+
+.card.status-warn{ border-left-color: var(--color-BossOrange); }
+.card.status-warn::after{ background: var(--color-BossOrange); }
+
+.card.status-wait{ border-left-color: var(--color-BossYellow); }
+.card.status-wait::after{ background: var(--color-BossYellow); }
+
+.card.status-ok{ border-left-color: var(--color-BossGreen); }
+.card.status-ok::after{ background: var(--color-BossGreen); }
+
+/* optional: make status text match the state */
+.card.status-error .status-text{ color: var(--color-BossPink) !important; font-weight:600; }
+.card.status-warn  .status-text{ color: var(--color-BossOrange) !important; font-weight:600; }
+.card.status-wait  .status-text{ color: var(--color-BossYellow) !important; font-weight:600; }
+.card.status-ok    .status-text{ color: var(--color-BossGreen) !important; font-weight:600; }

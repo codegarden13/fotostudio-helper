@@ -83,14 +83,18 @@ const els = {
   thumbStrip: document.getElementById("thumbStrip"),
 
   metaStart: document.getElementById("metaStart"),
-  metaEnd: document.getElementById("metaEnd"),
+  metaEnd: document.getElementById("metaEnd"), // ??????
   metaCount: document.getElementById("metaCount"),
   metaExample: document.getElementById("metaExample"),
 
   title: document.getElementById("title"),
+  sessionNote: document.getElementById("sessionNote"), 
+  sessionKeywords: document.getElementById("sessionKeywords"), ///????
+
   status: document.getElementById("status"),
   log: document.getElementById("log"),
   progressBar: document.getElementById("progressBar"),
+
 };
 
 /* ======================================================
@@ -128,7 +132,6 @@ const state = {
   gapMs: 30 * 60 * 1000,
 
   userTouchedTitle: false,
-
 
 };
 
@@ -468,7 +471,7 @@ async function uiSetCurrentImage(path) {
 
 async function fetchExposure(filePath) {
   const url = `/api/exposure?path=${encodeURIComponent(filePath)}`;
-  logLine("[exposure] GET", url);
+  //logLine("[exposure] GET", url);
   return fetchJson(url, { cache: "no-store" });
 }
 
@@ -745,30 +748,59 @@ async function runScan() {
 }
 
 async function importSelectedSession() {
-  // Hard guard: camera must be connected *now*
+  // 0) Guard: camera must be connected now
   const camLabel = await checkCameraOnce();
   if (!camLabel) {
     setLog("Import aborted: No camera detected. Connect camera (MSC / Mass Storage) and wait for mount.");
     return;
   }
 
+  // 1) Guard: session selection must be valid
   const s = getSelectedSession();
   if (!s) return setLog("Import aborted: No session selected.");
   if (!Array.isArray(s.items) || s.items.length === 0) return setLog("Import aborted: Session has no items.");
 
+  // 2) Guard: target root must exist in UI (server still validates mount/writable)
   const root = getEffectiveTargetRoot();
   if (!root) return setLog("Import aborted: No target root configured.");
 
-  const sessionTitle = (els.title?.value || "").trim();
-  const payload = {
-    sessionTitle,
-    sessionStart: s.start,
-    sessionEnd: s.end,
-    files: s.items,
-  };
+  // 3) Build payload (single source of truth for server session.json + xmp later)
+ 
 
+
+
+const sessionTitle = String(els.title?.value ?? "").trim();
+const sessionNote = String(els.sessionNote?.value ?? "").trim();
+
+  // You can keep this as a string; server parses it into an array (comma-separated)
+  // Example: "kunde:meier, projekt:bird, location:garden"
+const sessionKeywords = String(els.sessionKeywords?.value ?? "").trim();
+
+const payload = {
+  sessionTitle,
+  sessionNote,
+  sessionKeywords,
+  sessionStart: s.start,
+  sessionEnd: s.end,
+  files: s.items,
+};
+
+
+
+  logLine("[IMPORT payload]", payload);
+
+
+  // 4) UX + logging
   setBusy({ importing: true });
-  logLine("[import] POST /api/import", { title: sessionTitle, count: s.count });
+  uiUpdateImportEnabled?.();
+  uiRenderImportButton?.();
+
+  logLine("[import] POST /api/import", {
+    title: sessionTitle || "(Untitled)",
+    noteLen: sessionNote.length,
+    keywords: sessionKeywords ? sessionKeywords.split(",").map(x => x.trim()).filter(Boolean).length : 0,
+    count: s.count ?? s.items.length,
+  });
 
   try {
     const out = await fetchJson("/api/import", {
@@ -777,8 +809,11 @@ async function importSelectedSession() {
       body: JSON.stringify(payload),
     });
 
+    // 5) Only now mutate client state (import succeeded)
     const importedSet = new Set(s.items);
-    state.scanItems = normalizeAndSortItems(state.scanItems.filter((it) => !importedSet.has(it.path)));
+    state.scanItems = normalizeAndSortItems(
+      state.scanItems.filter((it) => !importedSet.has(it.path))
+    );
 
     applyScanItemsToUi();
 
@@ -786,18 +821,26 @@ async function importSelectedSession() {
       `Import OK\n` +
       `targetRoot: ${out.targetRoot || root}\n` +
       `sessionDir: ${out.sessionDir || "(unknown)"}\n` +
+      `exportsDir: ${out.exportsDir || "(unknown)"}\n` +
+      `exportSessionDir: ${out.exportSessionDir || "(missing)"}\n` +
+      `sessionJson: ${out.sessionJsonFile || "(n/a)"}\n` +
       `logFile: ${out.logFile || "(unknown)"}\n` +
       `copied: ${out.copied ?? "?"}, skipped: ${out.skipped ?? "?"}`
     );
 
     logLine("[import] ok", out);
   } catch (e) {
+    // Don’t mutate session list on failure; keep selection intact for retry
     setLog({ error: "Import failed", details: e });
     logLine("[import] failed", e);
   } finally {
     setBusy({ importing: false });
+
+    // keep UI consistent
     uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
     uiRenderHeaderMeta(getSelectedSession());
+    uiUpdateImportEnabled?.();
+    uiRenderImportButton?.();
   }
 }
 

@@ -23,6 +23,18 @@ function safeJson(x) {
   try { return JSON.stringify(x); } catch { return String(x); }
 }
 
+
+// Simple logLine-style helper (same mental model as client)
+export function logLine(msg, meta = null) {
+  if (!global.__SERVER_LOGGER__) {
+    // fallback if logger not initialized yet
+    const line = meta ? `${msg} ${JSON.stringify(meta)}` : msg;
+    console.log(line);
+    return;
+  }
+  global.__SERVER_LOGGER__.info(msg, meta);
+}
+
 export function createServerLogger({
   logsDir = "./logs",
   baseName = "server",
