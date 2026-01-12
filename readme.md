@@ -1,5 +1,5 @@
 # fotostudio-helper [1.0.9]
-Eine Fotosession - basierte  **Bildverwaltung** mit **effizientem Import-Workflow** für Agenturen, Fotografen, große Studios und Broadcast-Produktionen. Klappt auch für engagierte 😎 Hobbyfotografen.
+**Fotosession - basierte  Bildverwaltung** + effizienter Import-Workflow für mehrere Kameras und Datenquellen, Agenturen, Fotografen, große Studios oder Broadcast-Produktionen. Klappt auch für engagierte 😎 Hobbyfotografen.
 
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
