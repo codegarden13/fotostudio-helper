@@ -1,5 +1,5 @@
 # fotostudio-helper [1.0.9]
-**Bildverwaltung** und **effizienter Import-Workflow** für Agenturen, Fotografen, große Studios und Broadcast-Produktionen. 
+**Bildverwaltung** und **effizienter Import-Workflow** für Agenturen, Fotografen, große Studios und Broadcast-Produktionen. Klappt auch für engagierte 😎 Hobbyfotografen.
 
 Fotosession - basiert. 
 
@@ -18,7 +18,7 @@ Fotosession - basiert.
 **Photosessions zukunftssicher speichern, zur Weiterverarbeitung vorbereiten.** 
 
 - **Privat**: Du willst Deine Bilder einfach besser sortieren.
-- **Familie**: Du hast *Kameras und Handys*, die Bilder bei *verschiedenen Cloudanbietern* speichern. Bau ein Familienarchiv, wo jeder beitragen kann. 
+- **Familie**: Du hast *Kameras und Handys*, die Bilder bei *verschiedenen Cloudanbietern* speichern. Bau damit ein Familienarchiv, wo jeder beitragen kann. 
 - **Dein Office**: Ordner mit Bildern von *irgendwem* und *über igendwas* wollen einsortiert werden. Du bekommst Ordner oder Archive mit Bildern, die ordentlich abgelegt werden wollen: **"The usual chaos"**.
 - **Studio** Deine Photografen fotografieren mehrere Events gleichzeitig in der selben Woche, die Drohnen filmen irgendwo und die Handyshots "Behind the Stage" Deiner Mitarbeiter sind auch mega ...
 
