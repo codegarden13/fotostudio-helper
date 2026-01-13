@@ -1,5 +1,5 @@
 # fotostudio-helper [1.0.9]
-**Fotosession - basierte  Bildverwaltung** + effizienter Import-Workflow für mehrere Kameras und Datenquellen, Agenturen, Fotografen, große Studios oder Broadcast-Produktionen. Klappt auch für engagierte 😎 Hobbyfotografen.
+**Fotosession - basierte  Bildverwaltung** + effizienter Import-Workflow für Fotografen, große Studios, Agenturen oder Broadcast-Produktionen. (oder für engagierte 😎 Hobbyfotografen).
 
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
@@ -9,16 +9,18 @@
 
 <details>
 
-## Usecases
-
-**fotostudio-helper** ist ein zukunftssicheres Bildarchiv als Basis für weitere Prozesse. Die App skaliert auf >10000 Sessions monatlich, ist schnell wesentlich praxisbezogener als gängige Systeme, die Ordnerstrukturen wie  YYYY//MM/DD nutzen. 
- 
 **Photosessions zukunftssicher speichern, zur Weiterverarbeitung vorbereiten.** 
 
-- **Privat**: Du willst Deine Bilder einfach besser sortieren.
+## Usecases
+
+**fotostudio-helper** ist ein zukunftssicheres Bildarchiv als Basis für weitere Prozesse. Die App skaliert auf >10000 Sessions monatlich, ist schnell, praxisbezogener als mit bekannte Systeme, welche oft Ordnerstrukturen wie YYYY//MM/DD nutzen. Meine Idee ist der Monat, in dem die Sessions optimal strukturiert landen.
+ 
+
+
+- **Privat**: Du willst Deine Bilder besser sortieren.
 - **Familie**: Du hast *Kameras und Handys*, die Bilder bei *verschiedenen Cloudanbietern* speichern. Bau damit ein Familienarchiv, wo jeder beitragen kann. 
-- **Dein Office**: Ordner mit Bildern von *irgendwem* und *über igendwas* wollen einsortiert werden. Du bekommst Ordner oder Archive mit Bildern, die ordentlich abgelegt werden wollen: **"The usual chaos"**.
-- **Studio** Deine Photografen fotografieren mehrere Events gleichzeitig in der selben Woche, die Drohnen filmen irgendwo und die Handyshots "Behind the Stage" Deiner Mitarbeiter sind auch mega ...
+- **Dein Office**: Ordner mit Bildern von *irgendwem* und *über igendwas* wollen einsortiert werden: **"The usual chaos"**.
+- **Studio** Deine Mitarbeiter fotografieren mehrere Events gleichzeitig in der selben Woche, die Drohnen filmen irgendwo und ihre Handyshots "Behind the Stage" sind auch mega ...
 
 
 ## Unterstützte Dateitypen
