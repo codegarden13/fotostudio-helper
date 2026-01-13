@@ -1,5 +1,5 @@
 # fotostudio-helper [1.0.9]
-**Fotosession - basierte  Bildverwaltung** + effizienter Import-Workflow für Fotografen, große Studios, Agenturen oder Broadcast-Produktionen. (oder für engagierte 😎 Hobbyfotografen).
+**Fotosession - basierte  Bildverwaltung** und effizienter Import-Workflow für 😎 Fotografen, große Studios, Agenturen oder Broadcast-Produktionen.
 
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
@@ -7,20 +7,21 @@
 
 <p align="center"><em>No matter how you switch photo devices: your work is captured. Safe.</em></p>
 
-
-
-**Photosessions zukunftssicher speichern, zur Weiterverarbeitung vorbereiten.** 
-
 ## Usecases
 
-**fotostudio-helper** ist ein zukunftssicheres Bildarchiv als Basis für weitere Prozesse. Die App skaliert auf >10000 Sessions monatlich, ist schnell, praxisbezogener als mit bekannte Systeme, welche oft Ordnerstrukturen wie YYYY//MM/DD nutzen. Meine Idee ist der Monat, in dem die Sessions optimal strukturiert landen.
+*Photosessions zukunftssicher speichern und zur Weiterverarbeitung vorbereiten.*
+
+
+**fotostudio-helper** ist ein zukunftssicheres Bildarchiv als Basis für weitere Prozesse. Die App skaliert auf >10000 Sessions monatlich, ist schnell, praxisbezogener als mir bekannte Systeme, welche oft Ordnerstrukturen wie YYYY//MM/DD nutzen. 
+
+
 
 - **Privat**: Du willst Deine Bilder besser sortieren.
 - **Familie**: Du hast *Kameras und Handys*, die Bilder bei *verschiedenen Cloudanbietern* speichern. Bau damit ein Familienarchiv, wo jeder beitragen kann. 
 - **Dein Office**: Ordner mit Bildern von *irgendwem* und *über igendwas* wollen einsortiert werden.
 - **Dein Studio**: Die Mitarbeiter fotografieren mehrere Events gleichzeitig im selben Zeitraum, ihre Handyshots "Behind the Stage" sind auch mega und Deine Drohnen filmen sonstwo ... **"The usual chaos"**.
 
-
+Meine Idee ist der Monat, in dem fotografierte Sessions optimal strukturiert landen.
 
 
 ## Features
@@ -38,20 +39,12 @@
 - JPEGs und Sidecars (XMP, ON1, …) der RAW-Dateien werden kompatibel mit Lightroom, Capture One, Photoshop und Bilddatenbanken in einen Sessionordner verschoben.
 
 ### Live-Session-Shaping
-Sessions werden live anhand realer Aufnahmeabstände erkannt, interaktiv angepasst und mit Metadaten angereichert.
-
-Die Sessionbildung ist datengetrieben:
-	•	Sessions entstehen initial anhand eines Zeit-Gaps
-(Default: neue Session nach 30 Minuten ohne Aufnahme)
-	•	Der Gap-Slider passt die Sessiongrenzen in Echtzeit an
-→ andere Cluster, andere Bildanzahlen – sofort sichtbar
-	•	Vorab-Auswahl problematischer oder irrelevanter Bilder direkt im Scan
-- Sessions können am Stück gelöscht, benannt, beschrieben und verschlagwortet werden
-	•	Jede Session erhält eine session.json mit allen Metadaten
-	•	Gelöschte Bilder werden quellseitig in einen Papierkorb verschoben
-(vollständig geloggt, kein Datenverlust)
-
-
+- Sessions werden live und datengetrieben anhand realer Aufnahmeabstände erkannt, interaktiv angepasst und mit Metadaten angereichert. Sie entstehen initial anhand eines Zeit-Gaps(Default: neue Session nach 30 Minuten ohne Aufnahme)
+- Der Gap-Slider passt die Sessiongrenzen in Echtzeit an
+und die neuen Cluster mit anderen Bildanzahlen werden in der Sessionliste sichtbar.
+- Vorab-Auswahl problematischer oder irrelevanter Bilder direkt im Scan, Sessions können am Stück gelöscht, benannt, beschrieben und verschlagwortet werden
+- Jede Session erhält eine session.json mit allen Metadaten
+- Gelöschte Bilder werden quellseitig in einen Papierkorb verschoben
 
 ### Session - Archivierung
 - Skalierbare Langzeitarchivierung, **Software-agnostisch:** keine Bindung an ein bestimmtes Bildbearbeitungs- oder Asset-Management-System  
