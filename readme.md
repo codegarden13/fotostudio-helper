@@ -7,6 +7,9 @@
 
 <p align="center"><em>No matter how you switch photo devices: your work is captured. Safe.</em></p>
 
+<details>
+<summary>Anwendung</summary>
+
 ## Usecases
 
 *Photosessions zukunftssicher speichern und zur Weiterverarbeitung vorbereiten.*
@@ -18,13 +21,19 @@
 
 - **Privat**: Du willst Deine Bilder besser sortieren.
 - **Familie**: Du hast *Kameras und Handys*, die Bilder bei *verschiedenen Cloudanbietern* speichern. Bau damit ein Familienarchiv, wo jeder beitragen kann. 
-- **Dein Office**: Ordner mit Bildern von *irgendwem* und *über igendwas* wollen einsortiert werden.
+- **Dein Office**: Ordner mit Bildern von *irgendwem* und *über igendwas und sonstwas* wollen einsortiert werden.
 - **Dein Studio**: Die Mitarbeiter fotografieren mehrere Events gleichzeitig im selben Zeitraum, ihre Handyshots "Behind the Stage" sind auch mega und Deine Drohnen filmen sonstwo ... **"The usual chaos"**.
 
-Meine Idee ist der Monat, in dem fotografierte Sessions optimal strukturiert landen.
+Meine Idee ist der Monat, in dem fotografierte Sessions optimal strukturiert landen. Du willst nicht alles importieren, sondern Selektionen erzeugen.
 
+
+</details>
 
 ## Features
+
+<details>
+<summary>Unterstützte Dateitypen, Sessions und Archivierung</summary>
+
 ### Unterstützte Dateitypen
 - RAW:
   - `.arw`, `.cr2`, `.cr3`, `.nef`, `.raf`, `.dng`, `.rw2`, `.orf`, `.pef`, `.srw`
@@ -85,10 +94,12 @@ Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session. Session.
 
 
 
+</details>
 
 ## Changelog
 
 <details>
+<summary>Upcoming Version 2.0.0</summary>
 
 ### fotostudio-helper [2.0.0] - (not yet released)
 
