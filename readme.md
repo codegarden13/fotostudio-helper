@@ -103,12 +103,13 @@ Quelle Wählen.
 ![Quelle Importieren](assets/screenshots/0101_QuelleImportieren.png)
 
 Berechnete Sessions prüfen.
-![Sessions bilden](assets/screenhots/selectSession.png)
+![Sessions bilden](assets/screenshots/selectSession.png)
 
 Sessions per Schieberegler anpassen.
 ![Sessions anpassen](assets/screenshots/shapeSession.png)
 
 Session löschen, oder beschreiben und exportieren.
+
 ![Session beschreiben und exportieren](assets/screenshots/describeSession.png)
 
 ## Changelog
