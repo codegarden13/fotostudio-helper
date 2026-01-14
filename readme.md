@@ -7,13 +7,12 @@
 
 <p align="center"><em>No matter how you switch photo devices: your work is captured. Safe.</em></p>
 
-<details>
-<summary>Anwendung</summary>
+## Anwendung, Usecases
 
-## Usecases
+<details>
+<summary>Anwendung und Einsatzgebiete</summary>
 
 *Photosessions zukunftssicher speichern und zur Weiterverarbeitung vorbereiten.*
-
 
 **fotostudio-helper** ist ein zukunftssicheres Bildarchiv als Basis für weitere Prozesse. Die App skaliert auf >10000 Sessions monatlich, ist schnell, praxisbezogener als mir bekannte Systeme, welche oft Ordnerstrukturen wie YYYY//MM/DD nutzen. 
 
@@ -32,16 +31,13 @@ Meine Idee ist der Monat, in dem fotografierte Sessions optimal strukturiert lan
 ## Features
 
 <details>
-<summary>Unterstützte Dateitypen, Sessions und Archivierung</summary>
+<summary>Unterstützte Dateitypen, Sessionbildung und Langzeit - Archivierung</summary>
 
 ### Unterstützte Dateitypen
 - RAW:
   - `.arw`, `.cr2`, `.cr3`, `.nef`, `.raf`, `.dng`, `.rw2`, `.orf`, `.pef`, `.srw`
 - Raster:
   - `.jpg`, `.jpeg`, `.tif`, `.tiff`
-
-
-
 
 
 - Bilder aus beliebigen Quellen werden automatisch in stabile, sessionbasierte Ordnerstrukturen organisiert.
@@ -56,6 +52,10 @@ und die neuen Cluster mit anderen Bildanzahlen werden in der Sessionliste sichtb
 - Gelöschte Bilder werden quellseitig in einen Papierkorb verschoben
 
 ### Session - Archivierung
+
+Jede Fotosession ist ein Moment. Er kann kann länger oder kürzer sein, das 10/stel der Sekunde oder Wochenlang - das regelst du mit dem slider und teilst so Deine Bilder ein.
+Er kann auch von mehreren Kameras kommen (Ein weiterer Filter dafür neben dem Zeit -  Gap kommt vielleicht noch.)
+
 - Skalierbare Langzeitarchivierung, **Software-agnostisch:** keine Bindung an ein bestimmtes Bildbearbeitungs- oder Asset-Management-System  
 - Einheitliche, stabile Ordnerstruktur als langfristige "Quelle der Wahrheit"
 
@@ -64,9 +64,8 @@ Grundlage ist der tatsächliche Aufnahmezeitpunkt – nicht Ordnernamen oder Ger
   - Alle Bilder landen in einer konsistenten, nachvollziehbaren Struktur
   - Sessions erhalten sprechende, stabile Namen (Default: <Target>/<YYYY>/<MM>/<YYYY-MM-DD Titel__KAMERANAME>)
   - Sind mehrere Kameras beteiligt, wird der Sessionordner-Suffix zu __MIXED
-  - Quelle (UI) und Ziel (Config) sind unabhängig konfigurierbar
+  - Quelle (UI) und Ziel (Config) sind unabhängig konfigurierbar.
 
-![alt text](assets/05_SerieBenennen.png)
 
 ```
 └── 📁2025
@@ -88,11 +87,26 @@ Grundlage ist der tatsächliche Aufnahmezeitpunkt – nicht Ordnernamen oder Ger
                 ├── SONY ILCE-7RM5__0892.xmp
             └──  session.json
 ```
-Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session. Session.json enthält alle verarbeiteten Daten.
+Basis des exportierten Session-Ordnernamens ist der Zeitstempel des ersten Bildes der Session, gefolgt von der Kamera.  
+
+Darin nach dem Export session.json mit weiterverwendbaren  Meta - Daten über den gespeicherten Session - Zeitraum .
 
 
 
 </details>
+
+
+## Screenshots
+Quelle Wählen.
+![Quelle Importieren](assets/01_QuelleImportieren.png)
+
+![Quelle Importieren](assets/0101_QuelleImportieren.png)
+
+Sessions bilden.
+![Sessions bilden](assets/05_SerieBenennen02.png)
+
+Session beschreiben und exportieren.
+![Session beschreiben und exportieren](assets/03_SessionExportieren.png)
 
 ## Changelog
 
@@ -119,6 +133,15 @@ Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session. Session.
 - Camera constraints, Camera polling
 
 </details>
+
+<details>
+<summary>Upcoming Version 2.0.1</summary>
+
+### PLANNED.
+
+Session UUID forever - immutable fingerprint
+
+<details>
 
 ## Implementierung
 
