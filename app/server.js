@@ -10,7 +10,8 @@
 import express from "express";
 import { exiftool } from "exiftool-vendored";
 
-import { registerCameraRoutes } from "./routes/camera.js";
+
+import { registerFsBrowseRoutes } from "./routes/fsbrowse.js";
 import { registerExposureRoutes } from "./routes/exposure.js";
 import { registerScanRoutes } from "./routes/scan.js";
 import { registerPreviewRoutes } from "./routes/preview.js";
@@ -18,8 +19,11 @@ import { registerImportRoutes } from "./routes/import.js";
 import { registerDeleteRoutes } from "./routes/delete.js";
 import { registerConfigRoutes } from "./routes/config.js";
 import { registerTargetRoutes } from "./routes/target.js";
+import { registerDeletephotoSessionRoutes } from "./routes/delete-photoSession.js";
 
 import { createServerLogger } from "./lib/logger.js";
+
+
 
 /* ------------------------------------------------------------------ */
 /* Config                                                             */
@@ -73,6 +77,9 @@ app.use((req, res, next) => {
   next();
 });
 
+
+
+
 // UI/browser log ingestion (optional)
 if (typeof LOG.ingestUiLogs === "function") {
   app.post("/api/log", LOG.ingestUiLogs);
@@ -84,12 +91,14 @@ if (typeof LOG.ingestUiLogs === "function") {
 
 function registerRoutes(app) {
   registerConfigRoutes(app);
-  registerCameraRoutes(app);
-  registerExposureRoutes(app);
+  //registerCameraRoutes(app);
+  registerFsBrowseRoutes(app);
+  registerExposureRoutes(app);//TODO:sollte register Imagedata werden
   registerScanRoutes(app);
   registerPreviewRoutes(app);
   registerImportRoutes(app);
   registerDeleteRoutes(app);
+  registerDeletephotoSessionRoutes(app);
   registerTargetRoutes(app);
 }
 

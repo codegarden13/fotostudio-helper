@@ -16,3 +16,5 @@ export function setScanProgress(patch) {
 export function resetScanProgress() {
   scanProgress = { active: false, current: 0, total: 0, message: "" };
 }
+
+//TODO: Ich will den Progressbar auch für den Export nutzen können

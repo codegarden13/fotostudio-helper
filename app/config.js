@@ -1,10 +1,11 @@
 // app/config.js
 //
 // Goals:
-// - Single source of truth (CONFIG) with clear defaults per platform
-// - macOS + Linux supported; Windows explicitly unsupported (but app can still start)
-// - Minimal, predictable ENV overrides (trimmed + optional)
-// - Camera profiles are immutable and validated via helpers
+// - Single source of truth (CONFIG)
+// - macOS + Linux supported
+// - No camera- or DCIM-dependency
+// - Source folders are scanned recursively
+// - Camera is derived from image metadata (EXIF/XMP), not config
 
 import os from "os";
 import path from "path";
@@ -13,8 +14,7 @@ import path from "path";
    01) Platform + support
 ====================================================== */
 
-export const PLATFORM = os.platform(); // "darwin" | "linux" | "win32" | ...
-
+export const PLATFORM = os.platform(); // "darwin" | "linux" | "win32"
 export const SUPPORTED_PLATFORMS = Object.freeze(["darwin", "linux"]);
 
 export function isSupportedPlatform(platform = PLATFORM) {
@@ -41,18 +41,7 @@ function envString(name) {
 }
 
 /* ======================================================
-   03) Camera profiles
-====================================================== */
-
-const SONY_RAW_EXTS = Object.freeze([".arw"]);
-
-export const CAMERA_PROFILES = Object.freeze({
-  SonyA9III: Object.freeze({ brand: "sony", exts: new Set(SONY_RAW_EXTS) }),
-  SonyA7R: Object.freeze({ brand: "sony", exts: new Set(SONY_RAW_EXTS) }),
-});
-
-/* ======================================================
-   04) Defaults (per platform)
+   03) Defaults (per platform)
 ====================================================== */
 
 function defaultTargetRootFor(platform) {
@@ -62,38 +51,31 @@ function defaultTargetRootFor(platform) {
     case "linux":
       return "/mnt/PhotoRaw";
     default:
-      // Windows/unknown: intentionally empty -> routes can return 501 where needed
       return "";
   }
 }
 
-function defaultVolumeRootsFor(platform, username) {
-  if (platform === "darwin") return ["/Volumes"];
-
-  if (platform === "linux") {
-    const roots = [
-      username && `/run/media/${username}`,
-      username && `/media/${username}`,
-      "/run/media",
-      "/media",
-      "/mnt",
-    ].filter(Boolean);
-
-    // de-dupe while preserving order
-    return Array.from(new Set(roots));
+function defaultSourceRootFor(platform, username) {
+  switch (platform) {
+    case "darwin":
+      // sensible default: user pictures folder
+      return path.join("/Users", username, "Pictures");
+    case "linux":
+      return username
+        ? path.join("/home", username, "Pictures")
+        : "/home";
+    default:
+      return "";
   }
-
-  return [];
 }
 
 function defaultPreviewCacheDir() {
-  // Keep it inside OS temp to avoid permission surprises (esp. Linux)
   return path.join(os.tmpdir(), "studio-helper-previews");
 }
 
 function unsupportedReasonFor(platform) {
   if (platform === "win32") {
-    return "Windows is not supported. This app requires mounted volumes (macOS/Linux).";
+    return "Windows is not supported. This app requires POSIX filesystem semantics.";
   }
   if (!isSupportedPlatform(platform)) {
     return `Platform not supported: ${platform}`;
@@ -102,12 +84,25 @@ function unsupportedReasonFor(platform) {
 }
 
 /* ======================================================
-   05) CONFIG (single source of truth)
+   04) Image / source scanning defaults
 ====================================================== */
 
-const envTargetRoot = envString("STUDIO_TARGET_ROOT");
-const envPreviewCache = envString("STUDIO_PREVIEW_CACHE");
+// All extensions the scanner treats as primary images
+// (companions are handled elsewhere)
+const DEFAULT_IMAGE_EXTENSIONS = Object.freeze([
+  // RAW
+  ".arw", ".cr2", ".cr3", ".nef", ".dng", ".orf", ".rw2",
+  // JPEG
+  ".jpg", ".jpeg",
+]);
 
+/* ======================================================
+   05) CONFIG (single source of truth)
+====================================================== */
+//#TODO:Wird das genutzt
+const envTargetRoot = envString("STUDIO_TARGET_ROOT");
+const envSourceRoot = envString("STUDIO_SOURCE_ROOT");
+const envPreviewCache = envString("STUDIO_PREVIEW_CACHE");
 const supported = isSupportedPlatform(PLATFORM);
 
 export const CONFIG = Object.freeze({
@@ -116,20 +111,36 @@ export const CONFIG = Object.freeze({
   supported,
   unsupportedReason: supported ? null : unsupportedReasonFor(PLATFORM),
 
-  // Import destination root (must exist/mounted; do not auto-create)
+  /* --------------------------------------------------
+     Import destination (NAS / archive)
+     -------------------------------------------------- */
+
+  // Must exist and be writable; never auto-created
   targetRoot: (envTargetRoot || defaultTargetRootFor(PLATFORM)).trim(),
 
-  // Where to search for removable/mounted volumes (camera + other sources)
-  volumeRoots: Object.freeze(defaultVolumeRootsFor(PLATFORM, USERNAME)),
+  /* --------------------------------------------------
+     Import source (scan root)
+     -------------------------------------------------- */
 
-  // Camera detection + scan filtering
-  allowedCameras: Object.freeze(Object.keys(CAMERA_PROFILES)),
-  dcimFolder: "DCIM",
+  // Arbitrary folder; NOT required to be a mounted camera
+  sourceRoot: (envSourceRoot || defaultSourceRootFor(PLATFORM, USERNAME)).trim(),
 
-  // Session grouping
+  sourceScan: Object.freeze({
+    recursive: true,          // walk subfolders
+    followSymlinks: false,    // safety first
+    maxDepth: 32,             // hard guard against runaway trees
+    imageExtensions: Object.freeze(DEFAULT_IMAGE_EXTENSIONS),
+  }),
+
+  /* --------------------------------------------------
+     Session grouping
+     -------------------------------------------------- */
+  // Minutes between images that start a new session
   sessionGapMinutes: 30,
 
-  // Preview caching
+  /* --------------------------------------------------
+     Preview caching
+     -------------------------------------------------- */
   previewCacheDir: (envPreviewCache || defaultPreviewCacheDir()).trim(),
 });
 
@@ -137,13 +148,7 @@ export const CONFIG = Object.freeze({
    06) Helpers
 ====================================================== */
 
-export function getCameraProfile(label) {
-  return CAMERA_PROFILES[label] ?? null;
-}
-
-export function getAllowedExtsForCamera(label) {
-  const profile = getCameraProfile(label);
-  if (!profile) throw new Error(`Unknown camera label: ${label}`);
-  if (!(profile.exts instanceof Set)) throw new Error(`Invalid extension set for camera: ${label}`);
-  return profile.exts;
+export function isImageExtension(ext) {
+  if (!ext) return false;
+  return CONFIG.sourceScan.imageExtensions.includes(ext.toLowerCase());
 }

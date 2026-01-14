@@ -192,7 +192,7 @@ body{
 #status{font-size:var(--font-sm); color:var(--text-muted);}
 
 /* =======================
-   06) LINKS (fix broken selector)
+   06) LINKS 
 ======================= */
 a{color:rgba(var(--accent-rgb),.92);}
 a:hover{color:rgba(var(--accent-rgb),1);}

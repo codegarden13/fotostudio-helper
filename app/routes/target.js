@@ -26,7 +26,7 @@ async function statSafe(p) {
   } catch (e) {
     return { ok: false, err: e };
   }
-}
+}//#TODO: Fuction is not used
 
 async function isWritableDir(p) {
   try {

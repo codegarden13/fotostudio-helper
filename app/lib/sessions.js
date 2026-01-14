@@ -4,6 +4,8 @@ export function groupSessions(items, gapMinutes) {
   const gapMs = gapMinutes * 60 * 1000;
   const sessions = [];
   let current = [];
+  //#TODO: Erklären lassen was diese kalkulation soll
+  //#TODO:Will komplette sessions löschen können
 
   for (const it of items) {
     if (!current.length) { current.push(it); continue; }

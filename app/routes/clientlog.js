@@ -34,6 +34,7 @@ export function registerClientLogRoutes(app, { logger }) {
 }
 
 /**
+ * #TODO:Check server for that, it should be there
  * If your server already has `app.use(express.json())`, you can delete this
  * and use nothing here. This is only to make this route self-contained.
  */

@@ -12,34 +12,97 @@ import { exiftool } from "exiftool-vendored";
 
 /* ======================================================
    Helpers (pure)
-   ====================================================== */
+====================================================== */
 
-function toNumber(v) {
+/**
+ * Convert common EXIF value shapes into a finite number.
+ * Accepts:
+ * - number
+ * - numeric string ("0.004", "125")
+ * - rational-ish object ({numerator, denominator} or {num, den})
+ */
+function toFiniteNumber(v) {
   if (v == null) return null;
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : null;
+
+  if (typeof v === "number") {
+    return Number.isFinite(v) ? v : null;
+  }
+
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return null;
+    const n = Number(s.replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  if (typeof v === "object") {
+    const num = toFiniteNumber(v.numerator ?? v.num ?? v.n);
+    const den = toFiniteNumber(v.denominator ?? v.den ?? v.d);
+    if (Number.isFinite(num) && Number.isFinite(den) && den !== 0) {
+      return num / den;
+    }
+  }
+
+  return null;
 }
 
-function formatShutter(exposureTimeSec) {
-  const t = toNumber(exposureTimeSec);
+/**
+ * Parse ExposureTime-like values into seconds.
+ * Handles:
+ * - number seconds (0.004)
+ * - string fractions ("1/250", "1/250 s")
+ * - string numbers ("0.004")
+ * - rational objects
+ */
+function parseExposureTimeSeconds(v) {
+  if (v == null) return null;
+
+  if (typeof v === "number") {
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+
+  if (typeof v === "string") {
+    const s = v.trim().replace(/\s*(s|sec|secs)\s*$/i, "");
+    if (!s) return null;
+
+    const frac = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (frac) {
+      const num = Number(frac[1]);
+      const den = Number(frac[2]);
+      if (Number.isFinite(num) && Number.isFinite(den) && num > 0 && den > 0) return num / den;
+      return null;
+    }
+
+    const n = toFiniteNumber(s);
+    return n && n > 0 ? n : null;
+  }
+
+  // rational-ish object
+  const n = toFiniteNumber(v);
+  return n && n > 0 ? n : null;
+}
+
+/**
+ * Format shutter speed from seconds into UI string:
+ * - >= 1s => "1s", "2.5s"
+ * - < 1s  => "1/250s"
+ */
+function formatShutterFromSeconds(seconds) {
+  const t = toFiniteNumber(seconds);
   if (!t || t <= 0) return null;
 
-  // >= 1s: show seconds (e.g. "1s", "2.5s")
   if (t >= 1) {
     const s = t >= 10 ? t.toFixed(0) : t.toFixed(1);
     return `${s.replace(/\.0$/, "")}s`;
   }
 
-  // < 1s: show reciprocal (e.g. "1/250s")
   const denom = Math.round(1 / t);
   return denom > 0 ? `1/${denom}s` : null;
 }
 
 function formatAperture(fNumber) {
-  const f = toNumber(fNumber);
+  const f = toFiniteNumber(fNumber);
   if (!f || f <= 0) return null;
-
-  // Return just the numeric part; UI can render "ƒ/<aperture>"
   return String(f.toFixed(1)).replace(/\.0$/, "");
 }
 
@@ -54,7 +117,7 @@ function pickIso(tags) {
   ];
 
   for (const c of candidates) {
-    const n = toNumber(c);
+    const n = toFiniteNumber(c);
     if (n && n > 0) return n;
   }
   return null;
@@ -65,9 +128,32 @@ function safePathParam(req) {
   return typeof raw === "string" ? raw.trim() : "";
 }
 
+/**
+ * Derive shutter seconds from common tag variants.
+ * Tries in order:
+ * - ExposureTime
+ * - ShutterSpeed (sometimes already "1/250")
+ * - ShutterSpeedValue (APEX Tv): seconds = 2^(-Tv)
+ */
+function deriveShutterSeconds(tags) {
+  const sec =
+    parseExposureTimeSeconds(tags?.ExposureTime) ??
+    parseExposureTimeSeconds(tags?.ShutterSpeed);
+
+  if (sec != null) return sec;
+
+  const tv = toFiniteNumber(tags?.ShutterSpeedValue);
+  if (tv != null) {
+    const seconds = Math.pow(2, -tv);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
+  }
+
+  return null;
+}
+
 /* ======================================================
    Route registration
-   ====================================================== */
+====================================================== */
 
 export function registerExposureRoutes(app) {
   if (!app || typeof app.get !== "function") {
@@ -81,11 +167,11 @@ export function registerExposureRoutes(app) {
     try {
       const tags = await exiftool.read(filePath);
 
-      const shutter = formatShutter(tags?.ExposureTime);
+      const shutterSeconds = deriveShutterSeconds(tags);
+      const shutter = formatShutterFromSeconds(shutterSeconds);
       const aperture = formatAperture(tags?.FNumber);
       const iso = pickIso(tags);
 
-      // Minimal, stable payload for UI rendering
       return res.json({ shutter, aperture, iso });
     } catch (e) {
       // Keep response stable; avoid leaking internals in production

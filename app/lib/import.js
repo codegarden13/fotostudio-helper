@@ -5,6 +5,7 @@
 // - Treat targetRoot as an existing mount (do NOT mkdir targetRoot)
 // - Build YYYY/MM/YYYY-MM-DD Title/{originals,exports} under targetRoot
 // - Copy files idempotently (skip if already exists)
+// - Route RAW→JPEG companions into exports/jpg
 // - Provide clear errors for non-existent / non-writable roots
 
 import path from "path";
@@ -12,37 +13,66 @@ import fs from "fs";
 import fsp from "fs/promises";
 
 import { LOG } from "../server.js";
+import { readImageMeta } from "./exif.js";
+import { findCompanionsForImage } from "./companions.js";
 
 /* ======================================================
-   01) Error helper (stable codes + HTTP-ish status hints)
+   File type constants
 ====================================================== */
 
-function makeErr(message, { code, status, cause } = {}) {
-  const err = new Error(message);
-  if (code) err.code = code;
-  if (status) err.status = status;
-  if (cause) err.cause = cause;
-  return err;
-}
+const RAW_EXTS = new Set([
+  ".arw", ".cr2", ".cr3", ".nef", ".raf", ".dng",
+  ".rw2", ".orf", ".pef", ".srw",
+]);
+
+const JPEG_EXTS = new Set([".jpg", ".jpeg"]);
 
 /* ======================================================
-   02) Small utilities
+   Small helpers (pure)
 ====================================================== */
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
-function asTrimmedString(v) {
-  return String(v ?? "").trim();
+function trimStr(v) {
+  const s = String(v ?? "").trim();
+  return s || "";
+}
+
+function extLower(p) {
+  return path.extname(trimStr(p)).toLowerCase();
+}
+
+function isRawPath(p) {
+  return RAW_EXTS.has(extLower(p));
+}
+
+function isJpegPath(p) {
+  return JPEG_EXTS.has(extLower(p));
+}
+
+function makeErr(message, { code = "ERROR", status = 500, cause } = {}) {
+  const err = new Error(message);
+  err.code = code;
+  err.status = status;
+  if (cause) err.cause = cause;
+  return err;
 }
 
 function requireNonEmptyString(v, { label, code = "BAD_ARGS", status = 400 } = {}) {
-  const s = asTrimmedString(v);
+  const s = trimStr(v);
   if (!s) throw makeErr(`${label} is missing`, { code, status });
   return s;
 }
 
+function ensureCameraPrefix(filename, cameraLabel) {
+  const base = String(filename || "");
+  const cam = trimStr(cameraLabel) || "Unknown";
+  const prefix = `${cam}__`;
+  return base.startsWith(prefix) ? base : prefix + base;
+}
+
 /* ======================================================
-   03) Root validation (mount-safe)
+   Root validation (mount-safe)
 ====================================================== */
 
 export async function assertWritableRoot(targetRoot) {
@@ -84,13 +114,12 @@ export async function assertWritableRoot(targetRoot) {
 }
 
 /* ======================================================
-   04) Naming helpers
+   Naming helpers
 ====================================================== */
 
 export function ymdFromTs(ts) {
   const n = typeof ts === "number" ? ts : Number(ts);
   const d = new Date(n);
-
   if (Number.isNaN(d.getTime())) return null;
 
   const yyyy = String(d.getFullYear());
@@ -101,7 +130,7 @@ export function ymdFromTs(ts) {
 }
 
 export function sanitizeTitle(input, { fallback = "Untitled", maxLen = 80 } = {}) {
-  const s = asTrimmedString(input);
+  const s = trimStr(input);
   if (!s) return fallback;
 
   const out = s
@@ -117,14 +146,9 @@ export function sanitizeTitle(input, { fallback = "Untitled", maxLen = 80 } = {}
 }
 
 /* ======================================================
-   05) Folder layout
+   Folder layout
 ====================================================== */
 
-/**
- * Build the target folder structure under an existing root:
- *
- *   targetRoot/YYYY/MM/YYYY-MM-DD Title/{originals,exports}
- */
 export function buildSessionFolders({ targetRoot, firstImageTs, title }) {
   const root = requireNonEmptyString(targetRoot, {
     label: "buildSessionFolders(): targetRoot",
@@ -158,25 +182,16 @@ export function buildSessionFolders({ targetRoot, firstImageTs, title }) {
   };
 
   LOG.info("[import] buildSessionFolders", {
-  sessionDir: folders.sessionDir,
-  originalsDir: folders.originalsDir,
-  exportsDir: folders.exportsDir,
-});
+    sessionDir: folders.sessionDir,
+    originalsDir: folders.originalsDir,
+    exportsDir: folders.exportsDir,
+  });
 
   return folders;
 }
 
-/**
- * Create subfolders (year/month/session/originals/exports).
- * NOTE: does not create targetRoot.
- */
 export async function ensureSessionFolders(folders) {
-  const yearDir = folders?.yearDir;
-  const monthDir = folders?.monthDir;
-  const sessionDir = folders?.sessionDir;
-  const originalsDir = folders?.originalsDir;
-  const exportsDir = folders?.exportsDir;
-
+  const { yearDir, monthDir, sessionDir, originalsDir, exportsDir } = folders || {};
   if (!yearDir || !monthDir || !sessionDir || !originalsDir || !exportsDir) {
     throw makeErr("ensureSessionFolders(): invalid folders object", {
       code: "BAD_FOLDERS",
@@ -193,39 +208,13 @@ export async function ensureSessionFolders(folders) {
   return folders;
 }
 
-/**
- * Create: <exportsDir>/<sessionFolderName>/
- * Example:
- *   .../exports/2025-08-23 Plant test__SonyA9III/
- */
-export async function ensureExportSessionFolder(folders) {
-  const exportsDir = folders?.exportsDir;
-  const sessionDir = folders?.sessionDir;
-  if (!exportsDir || !sessionDir) {
-    throw makeErr("ensureExportSessionFolder(): invalid folders object", {
-      code: "BAD_FOLDERS",
-      status: 500,
-    });
-  }
-
-  await fsp.mkdir(exportsDir, { recursive: true });
-
-  const sessionFolderName = path.basename(sessionDir);
-  const exportSessionDir = path.join(exportsDir, sessionFolderName);
-
-  await fsp.mkdir(exportSessionDir, { recursive: true });
-  await fsp.stat(exportSessionDir);
-
-  return exportSessionDir;
-}
-
 /* ======================================================
-   06) File copy primitive (idempotent)
+   File copy primitive (idempotent)
 ====================================================== */
 
 export async function copyFileEnsured(src, dst) {
-  const s = requireNonEmptyString(src, { label: "copyFileEnsured(): src", code: "BAD_ARGS", status: 400 });
-  const d = requireNonEmptyString(dst, { label: "copyFileEnsured(): dst", code: "BAD_ARGS", status: 400 });
+  const s = requireNonEmptyString(src, { label: "copyFileEnsured(): src" });
+  const d = requireNonEmptyString(dst, { label: "copyFileEnsured(): dst" });
 
   await fsp.mkdir(path.dirname(d), { recursive: true });
 
@@ -236,4 +225,114 @@ export async function copyFileEnsured(src, dst) {
     await fsp.copyFile(s, d);
     return { copied: true };
   }
+}
+
+/* ======================================================
+   Copy (primary + companions)
+====================================================== */
+
+/**
+ * Copy primary files and companions.
+ *
+ * Rules:
+ * - Primary file ALWAYS -> originals/
+ * - Companion files:
+ *   - .xmp / .on1 / .onphoto / etc. -> originals/
+ *   - JPG/JPEG companion of a RAW primary -> exports/jpg/
+ * - Every copied file is prefixed with its OWN camera label (or "Unknown")
+ * - Idempotent: skips if dst exists
+ *
+ * @returns {Promise<{copied:number, skipped:number, fileMap:Array}>}
+ */
+export async function copyOriginalsWithCompanions({
+  files,
+  originalsDir,
+  exportsDir,
+  includeJpegForRaw = true,
+} = {}) {
+  const inputFiles = Array.isArray(files) ? files : [];
+
+  const originals = requireNonEmptyString(originalsDir, {
+    label: "copyOriginalsWithCompanions(): originalsDir",
+  });
+
+  const exportsBase = requireNonEmptyString(exportsDir, {
+    label: "copyOriginalsWithCompanions(): exportsDir",
+  });
+
+  // Ensure exports/jpg exists (routing target)
+  const exportsJpgDir = path.join(exportsBase, "jpg");
+  await fsp.mkdir(exportsJpgDir, { recursive: true });
+
+  let copied = 0;
+  let skipped = 0;
+  const fileMap = [];
+
+  // Cache camera label per absolute file path to avoid repeated EXIF reads
+  const camCache = new Map(); // absPath -> label
+
+  async function cameraLabelFor(absPath) {
+    const key = trimStr(absPath);
+    if (!key) return "Unknown";
+    if (camCache.has(key)) return camCache.get(key);
+
+    let label = "Unknown";
+    try {
+      const meta = await readImageMeta(key);
+      label = trimStr(meta?.cameraLabel) || "Unknown";
+    } catch {
+      // ignore; keep Unknown
+    }
+
+    camCache.set(key, label);
+    return label;
+  }
+
+  async function copyOne({ src, dstDir, dstRelPrefix }) {
+    const cam = await cameraLabelFor(src);
+    const dstName = ensureCameraPrefix(path.basename(src), cam);
+    const dst = path.join(dstDir, dstName);
+
+    const { copied: didCopy } = await copyFileEnsured(src, dst);
+    didCopy ? copied++ : skipped++;
+
+    fileMap.push({
+      src,
+      camera: cam,
+      dstName,
+      dstRel: `${dstRelPrefix}/${dstName}`,
+    });
+  }
+
+  for (const primarySrc of inputFiles) {
+    const primary = trimStr(primarySrc);
+    if (!primary) continue;
+
+    const primaryIsRaw = isRawPath(primary);
+
+    // 1) Primary always -> originals
+    await copyOne({
+      src: primary,
+      dstDir: originals,
+      dstRelPrefix: "originals",
+    });
+
+    // 2) Companions
+    const companions = await findCompanionsForImage(primary, { includeJpegForRaw });
+
+    for (const compSrc of companions) {
+      const comp = trimStr(compSrc);
+      if (!comp) continue;
+
+      const routeToExportsJpg = primaryIsRaw && isJpegPath(comp);
+
+      await copyOne({
+        src: comp,
+        dstDir: routeToExportsJpg ? exportsJpgDir : originals,
+        dstRelPrefix: routeToExportsJpg ? "exports/jpg" : "originals",
+      });
+    }
+  }
+
+  return { copied, skipped, fileMap };
 }

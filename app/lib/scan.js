@@ -12,10 +12,24 @@
 // - Robust EXIF timestamp extraction (handles ExifDateTime/Date/string)
 // - Optional debug logging for EXIF fallbacks (off by default)
 
+
 import path from "path";
 import fsp from "fs/promises";
 import { exiftool } from "exiftool-vendored";
-import { extOf } from "../lib/fsutil.js";
+import { extOf } from "./fsutil.js";
+
+
+
+function shouldSkipDirentName(name) {
+  if (!name) return true;
+  // keep your existing skip set if you have it; otherwise:
+  return (
+    name === ".Spotlight-V100" ||
+    name === ".Trashes" ||
+    name === ".fseventsd" ||
+    name === "System Volume Information"
+  );
+}
 
 /* ======================================================
    Configuration
@@ -108,11 +122,7 @@ function pickExifDate(tags) {
   return null;
 }
 
-function shouldSkipDirentName(name) {
-  if (!name) return false;
-  if (name.startsWith(".")) return true;
-  return CONFIG.SKIP_DIR_NAMES.has(name);
-}
+
 
 function debugExifFallback(filePath, err) {
   if (!CONFIG.DEBUG_EXIF_FALLBACK) return;
@@ -123,24 +133,45 @@ function debugExifFallback(filePath, err) {
    Public API
    ====================================================== */
 
+
+
 /**
  * Walk a directory tree iteratively and return all files
  * matching the allowed extensions.
  *
  * - Skips dotfiles and known system folders
- * - Continues on unreadable directories
- *
- * @param {string} rootDir
- * @param {Set<string>} allowedExts (e.g. new Set([".arw",".jpg"]))
- * @returns {Promise<string[]>}
+ * - Continues on unreadable *sub*directories
+ * - BUT: rootDir must be readable, otherwise throw (so scan doesn't return 0 silently)
  */
 export async function walk(rootDir, allowedExts) {
   if (!allowedExts || typeof allowedExts.has !== "function") {
     throw new Error("walk(): allowedExts must be a Set");
   }
 
+  const root = path.resolve(String(rootDir || "").trim());
+  if (!root) throw new Error("walk(): rootDir is empty");
+
+  // Root must exist + be a directory + be readable
+  let st;
+  try {
+    st = await fsp.stat(root);
+  } catch (e) {
+    e.message = `walk(): rootDir does not exist: ${root}`;
+    throw e;
+  }
+  if (!st.isDirectory()) {
+    throw new Error(`walk(): rootDir is not a directory: ${root}`);
+  }
+
+  try {
+    await fsp.access(root); // will throw on EPERM/EACCES
+  } catch (e) {
+    e.message = `walk(): rootDir not accessible (permissions?): ${root}`;
+    throw e;
+  }
+
   const results = [];
-  const stack = [rootDir];
+  const stack = [root];
 
   while (stack.length) {
     const dir = stack.pop();
@@ -149,13 +180,16 @@ export async function walk(rootDir, allowedExts) {
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch {
-      // Permission issues, transient mount state, etc.
+      // subfolders may be unreadable -> skip
       continue;
     }
 
     for (const entry of entries) {
       const name = entry.name;
       if (shouldSkipDirentName(name)) continue;
+
+      // Skip hidden files/folders everywhere (optional but usually desired)
+      if (name.startsWith(".")) continue;
 
       const fullPath = path.join(dir, name);
 
@@ -166,10 +200,8 @@ export async function walk(rootDir, allowedExts) {
 
       if (!entry.isFile()) continue;
 
-      // extOf() should already normalize case; if not, ensure extOf returns lower-case.
-      if (allowedExts.has(extOf(fullPath))) {
-        results.push(fullPath);
-      }
+      const ext = extOf(fullPath); // should be lower-case already in your fsutil.js
+      if (allowedExts.has(ext)) results.push(fullPath);
     }
   }
 

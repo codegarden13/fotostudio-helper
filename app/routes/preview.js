@@ -20,6 +20,8 @@ export function registerPreviewRoutes(app) {
         return res.sendFile(resolved);
       }
 
+      
+
       return res.status(415).send("Preview not supported");
     } catch (err) {
       console.error("Preview error:", err);

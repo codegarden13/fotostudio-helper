@@ -1,22 +1,29 @@
 /**
  * studio-helper / public/app.js
  *
- * Frontend controller (structured, “modular within one file”).
+ * Frontend controller (single-page app).
  *
- * Responsibilities:
- * - Load server config (/api/config) and render target UI
- * - Poll camera connection (/api/camera) every 2s and show elapsed wait time when disconnected
- * - Scan filesystem (/api/scan) and receive raw items [{path, ts}]
- * - Compute gap presets from data and drive the gap slider
- * - Group raw items into sessions client-side (gap slider)
- * - Render session list, meta info, preview + thumbnails
- * - Fetch + show exposure (shutter/aperture/ISO) for the currently previewed file
- * - Delete current image and keep the current session selected
- * - Import selected session (POST /api/import with sessionStart+sessionEnd)
- * - Poll scan progress and update progress bar
+ * Notes (important)
+ * - Camera polling has been removed. Scan works from a selected source folder.
+ * - Source selection modal is Bootstrap-based and is the only supported picker.
+ * - This file is refactored to remove: duplicate handlers, duplicate functions, dead camera code,
+ *   and the broken fsbrowse GET-with-body variant.
  */
 
 import { createLogger } from "./logger.js";
+
+// Stateless functions from util
+import {
+  clamp,
+  fmt,
+  uniqueSorted,
+  normalizeAndSortItems,
+  msToLabel,
+  fmtRange,
+  formatExposureParts,
+  computeGapPresetsFromItems,
+  groupSessionsClient,
+} from "./lib/util.js";
 
 /* ======================================================
    01) CONFIG / CONSTANTS
@@ -24,13 +31,6 @@ import { createLogger } from "./logger.js";
 
 const APP = {
   PROGRESS_POLL_MS: 250,
-
-  CAMERA_POLL_MS: 2000,
-  CAMERA_ELAPSED_TICK_MS: 250,
-
-  GAP_PRESET_STEPS: 11,
-  GAP_PRESET_TOP_K: 6,
-  GAP_MIN_FLOOR_MS: 1000,
 
   FALLBACK_GAP_PRESETS_MS: [
     5_000,
@@ -50,17 +50,30 @@ console.log("[app.js] loaded", new Date().toISOString());
 ====================================================== */
 
 const els = {
-  scanBtn: document.getElementById("scanBtn"),
+
   importBtn: document.getElementById("importBtn"),
   deleteBtn: document.getElementById("deleteBtn"),
+  selSrcBtn: document.getElementById("selSrcBtn"),
 
+  // Source picker modal
+  sourcePickerModal: document.getElementById("sourcePickerModal"),
+  srcPickerPath: document.getElementById("srcPickerPath"),
+  srcPickerUpBtn: document.getElementById("srcPickerUpBtn"),
+  srcPickerList: document.getElementById("srcPickerList"),
+  srcPickerSelectBtn: document.getElementById("srcPickerSelectBtn"),
+
+  srcModeHint: document.getElementById("srcModeHint"),
+
+
+
+  // Target
   currentDestRoot: document.getElementById("currentDestRoot"),
   currentDestInline: document.getElementById("currentDestInline"),
   destModeHint: document.getElementById("destModeHint"),
   chooseDestBtn: document.getElementById("chooseDestBtn"),
-  resetDestBtn: document.getElementById("resetDestBtn"),
- 
+  
 
+  // Header
   hdrSessionId: document.getElementById("hdrSessionId"),
   hdrCount: document.getElementById("hdrCount"),
   hdrRange: document.getElementById("hdrRange"),
@@ -68,13 +81,12 @@ const els = {
   hdrDest: document.getElementById("hdrDest"),
   hdrSessionSelect: document.getElementById("hdrSessionSelect"),
 
-  cameraAlert: document.getElementById("cameraAlert"),
-  cameraPollCountdown: document.getElementById("cameraPollCountdown"),
-
+  // Gap slider
   gapSlider: document.getElementById("gapSlider"),
   gapValue: document.getElementById("gapValue"),
   gapLegend: document.getElementById("gapLegend"),
 
+  // Sessions + preview
   sessions: document.getElementById("sessions"),
   preview: document.getElementById("preview"),
   previewExposure: document.getElementById("previewExposure"),
@@ -82,19 +94,25 @@ const els = {
   previewInfo: document.getElementById("previewInfo"),
   thumbStrip: document.getElementById("thumbStrip"),
 
+  // Session meta (left card)
   metaStart: document.getElementById("metaStart"),
-  metaEnd: document.getElementById("metaEnd"), // ??????
+  metaEnd: document.getElementById("metaEnd"),
   metaCount: document.getElementById("metaCount"),
   metaExample: document.getElementById("metaExample"),
 
-  title: document.getElementById("title"),
-  sessionNote: document.getElementById("sessionNote"), 
-  sessionKeywords: document.getElementById("sessionKeywords"), ///????
+  delSessionBtn: document.getElementById("delSessionBtn"),
 
-  status: document.getElementById("status"),
+
+
+
+  // Import fields
+  title: document.getElementById("title"),
+  sessionNote: document.getElementById("sessionNote"),
+  sessionKeywords: document.getElementById("sessionKeywords"),
+
+  // Log + progress
   log: document.getElementById("log"),
   progressBar: document.getElementById("progressBar"),
-
 };
 
 /* ======================================================
@@ -117,15 +135,9 @@ const state = {
   busy: { scanning: false, importing: false, deleting: false },
 
   progressTimer: null,
-  cameraPollTimer: null,
-  cameraElapsedTimer: null,
-  cameraCheckInFlight: false,
-  cameraLast: { connected: false, label: "" },
-  cameraWaitSinceMs: 0,
 
   defaultTargetRoot: null,
   currentTargetRoot: null,
-  targetStatus: { exists: false, writable: false, path: "" },
 
   gapPresetsMs: [],
   gapPresetIndex: 0,
@@ -133,14 +145,20 @@ const state = {
 
   userTouchedTitle: false,
 
+  // Source folder (selected via modal)
+  sourceRoot: "/",
+  _srcPicker: null,
 };
 
-/* ======================================================
-   05) UTILS
-====================================================== */
+function defaultMacStartPath() {
+  // Browser JS can’t expand "~" by itself; let the server resolve it.
+  // We pass a token the server understands (recommended), or we just start at "/Volumes".
+  return "USER_HOME_PICTURES";
+}
 
-const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
-const fmt = (ts) => new Date(ts).toISOString().replace("T", " ").slice(0, 16);
+/* ======================================================
+   05) DOM UTILS (candidate for public/lib/dom.js)
+====================================================== */
 
 function on(el, type, handler, options) {
   if (!el) return;
@@ -159,44 +177,8 @@ function clearEl(el) {
   if (el) el.innerHTML = "";
 }
 
-function uniqueSorted(arr) {
-  return Array.from(new Set(arr.filter((x) => Number.isFinite(x) && x > 0))).sort((a, b) => a - b);
-}
-
-function normalizeAndSortItems(items) {
-  return (Array.isArray(items) ? items : [])
-    .map((it) => ({ path: it?.path, ts: Number(it?.ts) }))
-    .filter((it) => it.path && Number.isFinite(it.ts))
-    .sort((a, b) => a.ts - b.ts);
-}
-
-function msToLabel(ms) {
-  const s = ms / 1000;
-  if (s < 60) return `${Math.round(s)}s`;
-  const m = s / 60;
-  if (m < 60) return `${Math.round(m)}min`;
-  const h = m / 60;
-  if (h < 48) return `${Math.round(h)}h`;
-  const d = h / 24;
-  if (d < 14) return `${Math.round(d)}d`;
-  const w = d / 7;
-  if (w < 10) return `${Math.round(w)}w`;
-  const mo = d / 30.4375;
-  return `${Math.round(mo)}mo`;
-}
-
-function fmtRange(start, end) {
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return "–";
-  const a = fmt(start);
-  const b = fmt(end);
-  const dayA = a.slice(0, 10);
-  const dayB = b.slice(0, 10);
-  if (dayA === dayB) return `${dayA} ${a.slice(11)}–${b.slice(11)}`;
-  return `${a}–${b}`;
-}
-
 /* ======================================================
-   06) API
+   06) API (candidate for public/lib/api.js)
 ====================================================== */
 
 async function fetchJson(url, init) {
@@ -207,57 +189,32 @@ async function fetchJson(url, init) {
 }
 
 /* ======================================================
-   07) UI: CAMERA + HEADER
+   07) STATE MUTATORS
 ====================================================== */
 
-function uiSetCamera(connected, label = "") {
 
-  /* decides text + classes, then updates dependent UI. */
-  const statusEl = els.status;
 
-  const text = connected
-    ? `Camera: ${label}`
-    : "Keine Kamera / definierter Datenträger";
 
-  setText(statusEl, text);
-
-  // Visual state (use your magenta class if you added it)
-  statusEl?.classList.toggle("camera-disconnected", !connected);
-  statusEl?.classList.toggle("text-muted", connected);
-
-  // If you still rely on Bootstrap danger somewhere, keep this; otherwise remove it.
-  statusEl?.classList.toggle("text-danger", false);
-
-  // Alert visibility
-  els.cameraAlert?.classList.toggle("d-none", connected);
-
-  // Camera-gated actions
-  const busy = state.busy || {};
-  if (els.scanBtn) els.scanBtn.disabled = !connected || !!busy.scanning;
-  if (els.deleteBtn) els.deleteBtn.disabled = !connected || !!busy.deleting;
-
-  // Reset progress when disconnected
-  if (!connected && els.progressBar) els.progressBar.value = 0;
-
-  // Import requires: camera + session selected + target known + not busy
-  uiUpdateImportEnabled();
-  uiRenderImportButton();
+function setSourceRoot(p) {
+  const v = String(p || "").trim();
+  state.sourceRoot = v || "/";              // keep stable fallback
+  setText(els.srcModeHint, state.sourceRoot);
+  setLog(`Source folder set to:\n${state.sourceRoot}`);
+  logLine("[sourceRoot] set", state.sourceRoot);
 }
 
-function uiSetCameraElapsed(secondsElapsed) {
-  if (!els.cameraPollCountdown) return;
-  const seconds = Math.max(0, Math.floor(secondsElapsed));
-  const text = String(seconds);
-  if (els.cameraPollCountdown.textContent !== text) {
-    els.cameraPollCountdown.textContent = text;
-  }
+  //#TODO:Was ist der unterschied der beiden Log varianten oben
+
+
+
+/* ======================================================
+   08) UI: HEADER + TARGET + BUTTONS
+====================================================== */
+
+function getEffectiveTargetRoot() {
+  return state.currentTargetRoot || state.defaultTargetRoot || "";
 }
 
-function renderCameraElapsed() {
-  if (state.cameraLast?.connected) return uiSetCameraElapsed(0);
-  if (!state.cameraWaitSinceMs) return uiSetCameraElapsed(0);
-  uiSetCameraElapsed((Date.now() - state.cameraWaitSinceMs) / 1000);
-}
 
 function uiRenderHeaderMeta(session = null) {
   setText(els.hdrSessionId, session ? String(session.id ?? "–") : "–");
@@ -270,16 +227,11 @@ function uiRenderHeaderMeta(session = null) {
 
   if (els.hdrSessionSelect && els.sessions) {
     const idx = els.sessions.selectedIndex;
-    setText(els.hdrSessionSelect, idx >= 0 ? String(idx + 1).padStart(2, "0") : "–");
+    setText(
+      els.hdrSessionSelect,
+      idx >= 0 ? String(idx + 1).padStart(2, "0") : "–"
+    );
   }
-}
-
-/* ======================================================
-   08) UI: TARGET + IMPORT BUTTON
-====================================================== */
-
-function getEffectiveTargetRoot() {
-  return state.currentTargetRoot || state.defaultTargetRoot || "";
 }
 
 function uiRenderTarget() {
@@ -292,14 +244,14 @@ function uiRenderTarget() {
     !!state.defaultTargetRoot &&
     state.currentTargetRoot !== state.defaultTargetRoot;
 
-  // Keep hint space for target status messages; do not override if you use it elsewhere
   setText(els.destModeHint, isOverride ? "Export-Workflow aktiv" : "");
 
   uiRenderHeaderMeta(getSelectedSession());
-  uiRenderImportButton();
+  /*uiRenderImportButton();*/
   uiUpdateImportEnabled();
 }
 
+/*
 function uiRenderImportButton() {
   if (!els.importBtn) return;
 
@@ -309,11 +261,11 @@ function uiRenderImportButton() {
     return;
   }
 
-  // Use a compact label (volume name / last segment)
   const short = root.split("/").filter(Boolean).slice(-1)[0] || root;
   els.importBtn.textContent = `Nach ${short} importieren`;
 }
 
+*/
 
 function hasSelectedSession() {
   if (!els.sessions) return false;
@@ -325,7 +277,6 @@ function uiUpdateImportEnabled() {
   if (!els.importBtn) return;
 
   const ok =
-    !!state.cameraLast?.connected &&
     !!getEffectiveTargetRoot() &&
     hasSelectedSession() &&
     !state.busy.importing;
@@ -334,14 +285,17 @@ function uiUpdateImportEnabled() {
 }
 
 function setBusy({ scanning = false, importing = false, deleting = false } = {}) {
-  state.busy = { scanning: !!scanning, importing: !!importing, deleting: !!deleting };
+  state.busy = {
+    scanning: !!scanning,
+    importing: !!importing,
+    deleting: !!deleting,
+  };
 
-  // Base busy gating (camera gating is handled in uiSetCamera)
-  if (els.scanBtn) els.scanBtn.disabled = !!scanning || !state.cameraLast?.connected;
-  if (els.deleteBtn) els.deleteBtn.disabled = !!deleting || !state.cameraLast?.connected;
+  if (els.scanBtn) els.scanBtn.disabled = !!scanning;
+  if (els.deleteBtn) els.deleteBtn.disabled = !!deleting;
 
   uiUpdateImportEnabled();
-  uiRenderImportButton();
+  //uiRenderImportButton();
 }
 
 /* ======================================================
@@ -353,7 +307,10 @@ function uiRenderSessions(list) {
   clearEl(els.sessions);
 
   list.forEach((s, i) => {
-    const label = `${String(i + 1).padStart(2, "0")} | ${fmtRange(s.start, s.end)} | ${s.count}`;
+    const label = `${String(i + 1).padStart(2, "0")} | ${fmtRange(
+      s.start,
+      s.end
+    )} | ${s.count}`;
     els.sessions.add(new Option(label, String(i)));
   });
 
@@ -385,14 +342,6 @@ function uiRenderSessionMeta(s) {
 /* ======================================================
    10) UI: EXPOSURE + PREVIEW
 ====================================================== */
-
-function formatExposureParts({ shutter, aperture, iso } = {}) {
-  const parts = [];
-  if (shutter) parts.push(`⏱ ${shutter}`);
-  if (aperture) parts.push(`ƒ/${aperture}`);
-  if (iso) parts.push(`ISO ${iso}`);
-  return parts;
-}
 
 function uiSetExposureNone() {
   if (els.previewExposure) els.previewExposure.textContent = "";
@@ -471,7 +420,6 @@ async function uiSetCurrentImage(path) {
 
 async function fetchExposure(filePath) {
   const url = `/api/exposure?path=${encodeURIComponent(filePath)}`;
-  //logLine("[exposure] GET", url);
   return fetchJson(url, { cache: "no-store" });
 }
 
@@ -480,11 +428,16 @@ async function fetchExposure(filePath) {
 ====================================================== */
 
 function uiApplyGapPresets(presetsMs, { keepNearest = true } = {}) {
-  state.gapPresetsMs = Array.isArray(presetsMs) && presetsMs.length ? presetsMs : [30 * 60e3];
+  // Always ensure we have >= 2 presets, otherwise the slider becomes non-movable.
+  let p = uniqueSorted(Array.isArray(presetsMs) ? presetsMs : []);
+  if (p.length < 2) p = uniqueSorted(APP.FALLBACK_GAP_PRESETS_MS);
+
+  state.gapPresetsMs = p;
+
   if (!els.gapSlider) return;
 
   els.gapSlider.min = "0";
-  els.gapSlider.max = String(Math.max(0, state.gapPresetsMs.length - 1));
+  els.gapSlider.max = String(Math.max(1, state.gapPresetsMs.length - 1)); // ✅ never 0
   els.gapSlider.step = "1";
 
   let idx = 0;
@@ -504,7 +457,11 @@ function uiApplyGapPresets(presetsMs, { keepNearest = true } = {}) {
 function gapSyncFromSlider() {
   if (!els.gapSlider || !state.gapPresetsMs.length) return;
 
-  const idx = clamp(Number(els.gapSlider.value || 0), 0, state.gapPresetsMs.length - 1);
+  const idx = clamp(
+    Number(els.gapSlider.value || 0),
+    0,
+    state.gapPresetsMs.length - 1
+  );
   state.gapPresetIndex = idx;
   state.gapMs = state.gapPresetsMs[idx];
 
@@ -518,87 +475,6 @@ function gapSyncFromSlider() {
   }
 
   uiRenderHeaderMeta(getSelectedSession());
-}
-
-function computeGapPresetsFromItems(
-  items,
-  { steps = APP.GAP_PRESET_STEPS, topK = APP.GAP_PRESET_TOP_K, minFloorMs = APP.GAP_MIN_FLOOR_MS } = {}
-) {
-  const ts = (items || [])
-    .map((it) => it?.ts)
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b);
-
-  if (ts.length < 2) return uniqueSorted([1000, 2000, 5000, 10_000, 30_000, 60_000]);
-
-  const diffs = [];
-  for (let i = 1; i < ts.length; i++) {
-    const d = ts[i] - ts[i - 1];
-    if (d > 0) diffs.push(d);
-  }
-  diffs.sort((a, b) => a - b);
-
-  const span = ts[ts.length - 1] - ts[0];
-  const minDiff = Math.max(minFloorMs, diffs[0] || minFloorMs);
-  const maxDiff = diffs[diffs.length - 1] || minDiff;
-
-  function snapUpToRealGap(target) {
-    let lo = 0, hi = diffs.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (diffs[mid] < target) lo = mid + 1;
-      else hi = mid;
-    }
-    return diffs[lo] >= target ? diffs[lo] : diffs[diffs.length - 1];
-  }
-
-  const base = [minFloorMs, 2000, 5000, 10_000, 30_000, 60_000].filter((x) => x <= span);
-  const largest = diffs.slice(-topK);
-
-  const upper = Math.max(maxDiff, span);
-  const logTargets = [];
-
-  if (steps >= 2) {
-    const a = Math.log(minDiff);
-    const b = Math.log(upper);
-    for (let i = 0; i < steps; i++) {
-      const t = Math.exp(a + (b - a) * (i / (steps - 1)));
-      logTargets.push(Math.max(minFloorMs, Math.min(upper, t)));
-    }
-  }
-
-  const snapped = logTargets.map(snapUpToRealGap);
-
-  const out = uniqueSorted(
-    [...base, ...snapped, ...largest, maxDiff, span].map((x) => Math.max(minFloorMs, Math.min(span, x)))
-  );
-
-  if (out[out.length - 1] !== span) out.push(span);
-  return uniqueSorted(out);
-}
-
-function groupSessionsClient(items, gapMs) {
-  const groups = [];
-  let cur = [];
-
-  for (const it of items) {
-    if (!cur.length || it.ts - cur[cur.length - 1].ts <= gapMs) cur.push(it);
-    else {
-      groups.push(cur);
-      cur = [it];
-    }
-  }
-  if (cur.length) groups.push(cur);
-
-  return groups.map((arr, i) => ({
-    id: String(i + 1),
-    start: arr[0].ts,
-    end: arr[arr.length - 1].ts,
-    count: arr.length,
-    examplePath: arr[0].path,
-    exampleName: arr[0].path.split("/").pop(),
-    items: arr.map((x) => x.path),
-  }));
 }
 
 function getSelectedSession() {
@@ -616,7 +492,9 @@ function ensureSelection({ preferSessionId = null, fallbackPath = null } = {}) {
   }
 
   if (idx < 0 && fallbackPath) {
-    idx = state.sessions.findIndex((s) => Array.isArray(s.items) && s.items.includes(fallbackPath));
+    idx = state.sessions.findIndex(
+      (s) => Array.isArray(s.items) && s.items.includes(fallbackPath)
+    );
   }
 
   if (idx < 0) idx = 0;
@@ -626,7 +504,7 @@ function ensureSelection({ preferSessionId = null, fallbackPath = null } = {}) {
 }
 
 /* ======================================================
-   12) FLOWS (config, camera, scan, import, delete)
+   12) FLOWS (config, scan, import, delete)
 ====================================================== */
 
 async function loadConfig() {
@@ -635,36 +513,6 @@ async function loadConfig() {
   state.currentTargetRoot = null;
   uiRenderTarget();
   logLine("[config] loaded", cfg);
-}
-
-async function checkCameraOnce() {
-  if (state.cameraCheckInFlight) return state.cameraLast?.label ?? null;
-  state.cameraCheckInFlight = true;
-
-  try {
-    const data = await fetchJson("/api/camera", { cache: "no-store" });
-    const connected = !!data.connected;
-    const label = connected ? String(data.label || "") : "";
-
-    if (!connected) {
-      if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
-    } else {
-      state.cameraWaitSinceMs = 0;
-    }
-
-    state.cameraLast = { connected, label };
-    uiSetCamera(connected, label);
-
-    return connected ? label : null;
-  } catch (e) {
-    if (!state.cameraWaitSinceMs) state.cameraWaitSinceMs = Date.now();
-    state.cameraLast = { connected: false, label: "" };
-    uiSetCamera(false, "");
-    logLine("[camera] error", e);
-    return null;
-  } finally {
-    state.cameraCheckInFlight = false;
-  }
 }
 
 function onSessionChange() {
@@ -700,6 +548,9 @@ function applyScanItemsToUi({ preserveSessionId = null, preservePath = null } = 
   regroupSessionsAndRerender({ preserveSessionId, preservePath });
 }
 
+
+
+
 function resetScanUiAndState() {
   clearEl(els.sessions);
   clearEl(els.thumbStrip);
@@ -709,7 +560,7 @@ function resetScanUiAndState() {
   setText(els.previewMeta, "–");
   uiSetExposureNone();
 
-  setLog(""); /* mirrors the entire current UI text to the server */
+  setLog("");
 
   state.scanItems = [];
   state.sessions = [];
@@ -720,12 +571,17 @@ function resetScanUiAndState() {
   uiRenderHeaderMeta(null);
 }
 
+async function selectSourceAndScan(selectedPath) {
+  setSourceRoot(selectedPath);
+  hideSourcePickerModal();
+  await runScan(); // auto-scan immediately
+}
+
 async function runScan() {
   resetScanUiAndState();
 
-  const camLabel = await checkCameraOnce();
-  if (!camLabel) {
-    setLog("Scan aborted: No camera detected. Check mount under /Volumes/<CameraName>.");
+  if (!state.sourceRoot) {
+    setLog("Scan aborted: No source folder selected. Click “Quelle wählen” first.");
     return;
   }
 
@@ -733,72 +589,57 @@ async function runScan() {
   startProgressPolling();
 
   try {
-    const data = await fetchJson("/api/scan", { method: "POST" });
+    const data = await fetchJson("/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceRoot: state.sourceRoot }),
+    });
+
     state.scanItems = normalizeAndSortItems(data.items);
     applyScanItemsToUi();
-    logLine("[scan] ok", { items: state.scanItems.length });
+
+    logLine("[scan] ok", { items: state.scanItems.length, sourceRoot: state.sourceRoot });
   } catch (e) {
     setLog(e);
     logLine("[scan] failed", e);
   } finally {
     stopProgressPolling();
     setBusy({ scanning: false });
-    uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
+    uiRenderHeaderMeta(getSelectedSession());
   }
 }
 
 async function importSelectedSession() {
-  // 0) Guard: camera must be connected now
-  const camLabel = await checkCameraOnce();
-  if (!camLabel) {
-    setLog("Import aborted: No camera detected. Connect camera (MSC / Mass Storage) and wait for mount.");
-    return;
-  }
-
-  // 1) Guard: session selection must be valid
   const s = getSelectedSession();
   if (!s) return setLog("Import aborted: No session selected.");
   if (!Array.isArray(s.items) || s.items.length === 0) return setLog("Import aborted: Session has no items.");
 
-  // 2) Guard: target root must exist in UI (server still validates mount/writable)
   const root = getEffectiveTargetRoot();
   if (!root) return setLog("Import aborted: No target root configured.");
 
-  // 3) Build payload (single source of truth for server session.json + xmp later)
- 
+  const sessionTitle = String(els.title?.value ?? "").trim();
+  const sessionNote = String(els.sessionNote?.value ?? "").trim();
+  const sessionKeywords = String(els.sessionKeywords?.value ?? "").trim();
 
+  const payload = {
+    sessionTitle,
+    sessionNote,
+    sessionKeywords,
+    sessionStart: s.start,
+    sessionEnd: s.end,
+    files: s.items,
+  };
 
+  logLine("[import] payload", payload);
 
-const sessionTitle = String(els.title?.value ?? "").trim();
-const sessionNote = String(els.sessionNote?.value ?? "").trim();
-
-  // You can keep this as a string; server parses it into an array (comma-separated)
-  // Example: "kunde:meier, projekt:bird, location:garden"
-const sessionKeywords = String(els.sessionKeywords?.value ?? "").trim();
-
-const payload = {
-  sessionTitle,
-  sessionNote,
-  sessionKeywords,
-  sessionStart: s.start,
-  sessionEnd: s.end,
-  files: s.items,
-};
-
-
-
-  logLine("[IMPORT payload]", payload);
-
-
-  // 4) UX + logging
   setBusy({ importing: true });
-  uiUpdateImportEnabled?.();
-  uiRenderImportButton?.();
 
   logLine("[import] POST /api/import", {
     title: sessionTitle || "(Untitled)",
     noteLen: sessionNote.length,
-    keywords: sessionKeywords ? sessionKeywords.split(",").map(x => x.trim()).filter(Boolean).length : 0,
+    keywords: sessionKeywords
+      ? sessionKeywords.split(",").map((x) => x.trim()).filter(Boolean).length
+      : 0,
     count: s.count ?? s.items.length,
   });
 
@@ -809,7 +650,6 @@ const payload = {
       body: JSON.stringify(payload),
     });
 
-    // 5) Only now mutate client state (import succeeded)
     const importedSet = new Set(s.items);
     state.scanItems = normalizeAndSortItems(
       state.scanItems.filter((it) => !importedSet.has(it.path))
@@ -830,65 +670,109 @@ const payload = {
 
     logLine("[import] ok", out);
   } catch (e) {
-    // Don’t mutate session list on failure; keep selection intact for retry
     setLog({ error: "Import failed", details: e });
     logLine("[import] failed", e);
   } finally {
     setBusy({ importing: false });
-
-    // keep UI consistent
-    uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
     uiRenderHeaderMeta(getSelectedSession());
-    uiUpdateImportEnabled?.();
-    uiRenderImportButton?.();
+    uiUpdateImportEnabled();
+    //uiRenderImportButton();
   }
 }
 
+/**
+ * Delete the currently selected image (and its companions) by moving it into
+ * a hidden trash folder under the selected sourceRoot.
+ *
+ * Server contract (current):
+ * POST /api/delete
+ * Body: { file: <absolutePath>, sourceRoot: <absolutePath> }
+ * Response: { ok, sourceRoot, trashedTo, moved:[{from,to}], skipped:[], errors:[] }
+ */
 async function deleteCurrentImage() {
+  // 1) Guard: must have an active session (keeps UI state predictable)
   const s = getSelectedSession();
   if (!s) return setLog("Delete aborted: No session selected.");
 
-  const preserveSessionId = s.id ?? null;
+  // 2) Guard: must have a selected image
   const deletingPath = state.currentFilePath;
-  if (!deletingPath) return setLog("Delete aborted: No image selected. Click a thumbnail first.");
+  if (!deletingPath) {
+    return setLog("Delete aborted: No image selected. Click a thumbnail first.");
+  }
 
-  const name = deletingPath.split("/").pop();
-  if (!confirm(`Delete (move to camera trash): ${name}?`)) return;
+  // 3) Guard: server requires sourceRoot to enforce safety boundaries
+  const sourceRoot = String(state.sourceRoot || "").trim();
+  if (!sourceRoot) {
+    return setLog("Delete aborted: sourceRoot missing. Select a source folder first.");
+  }
 
+  // 4) Confirm user intent
+  const name = deletingPath.split("/").pop() || deletingPath;
+  if (!confirm(`Delete (move to trash): ${name}?`)) return;
+
+  // 5) Disable conflicting actions while the delete is in-flight
   setBusy({ deleting: true });
 
   try {
+    // 6) Call delete endpoint
     const res = await fetch("/api/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file: deletingPath }),
+      body: JSON.stringify({
+        file: deletingPath,
+        sourceRoot, // REQUIRED: server validates the file is inside this root
+      }),
     });
 
     const data = await res.json().catch(() => ({}));
+
+    // 7) Error path: do not mutate UI state; user can retry
     if (!res.ok) {
       setLog({ error: "Delete failed", status: res.status, data });
       logLine("[delete] failed", { status: res.status, data });
       return;
     }
 
-    state.scanItems = normalizeAndSortItems(state.scanItems.filter((it) => it.path !== deletingPath));
+    // 8) Success: remove the deleted ORIGINAL from scanItems (companions are not in scanItems)
+    const preserveSessionId = s.id ?? null;
+    state.scanItems = normalizeAndSortItems(
+      state.scanItems.filter((it) => it.path !== deletingPath)
+    );
+
+    // 9) Rebuild sessions & keep selection stable
     applyScanItemsToUi({ preserveSessionId, preservePath: deletingPath });
 
+    // 10) Choose a reasonable next preview image
     const s2 = getSelectedSession();
-    if (s2?.items?.length) uiSetCurrentImage(s2.items[0]);
-    else {
+    if (s2?.items?.length) {
+      uiSetCurrentImage(s2.items[0]);
+    } else {
       uiSetCurrentImage(null);
       clearEl(els.thumbStrip);
     }
 
-    setLog(`Deleted: ${name}\nMoved to: ${data.movedTo || "(unknown)"}`);
+    // 11) UX message: server now returns `trashedTo` and `moved[]` (legacy was `movedTo`)
+    const movedTo =
+      data?.movedTo ||          // legacy
+      data?.trashedTo ||        // current preferred
+      data?.moved?.[0]?.to ||   // fallback to first moved file destination
+      "(unknown)";
+
+    setLog(
+      `Deleted: ${name}\n` +
+      `Moved to: ${movedTo}\n` +
+      `Files moved: ${Array.isArray(data?.moved) ? data.moved.length : 0}\n` +
+      `Missing: ${data?.missing ?? 0}`
+    );
+
     logLine("[delete] ok", data);
   } catch (err) {
+    // 12) Exception path: network/server crash/etc.
     setLog({ error: "Delete exception", err: String(err) });
     logLine("[delete] exception", err);
   } finally {
+    // 13) Always restore UI gating
     setBusy({ deleting: false });
-    uiSetCamera(state.cameraLast.connected, state.cameraLast.label);
     uiRenderHeaderMeta(getSelectedSession());
   }
 }
@@ -909,7 +793,9 @@ function startProgressPolling() {
         return;
       }
 
-      if (els.progressBar) els.progressBar.value = Math.round((p.current / p.total) * 100);
+      if (els.progressBar) {
+        els.progressBar.value = Math.round((p.current / p.total) * 100);
+      }
       if (p.active === false) stopProgressPolling();
     } catch {
       // ignore
@@ -924,32 +810,237 @@ function stopProgressPolling() {
   }
 }
 
-function startCameraPolling() {
-  stopCameraPolling();
-  checkCameraOnce();
-  state.cameraPollTimer = setInterval(checkCameraOnce, APP.CAMERA_POLL_MS);
-  state.cameraElapsedTimer = setInterval(renderCameraElapsed, APP.CAMERA_ELAPSED_TICK_MS);
-  renderCameraElapsed();
+/* ======================================================
+   14) SOURCE PICKER MODAL (candidate for public/lib/sourcePicker.js)
+====================================================== */
+
+function showSourcePickerModal() {
+  if (!els.sourcePickerModal) {
+    logLine("[sourcePicker] modal missing in DOM");
+    return;
+  }
+  const modal = bootstrap.Modal.getOrCreateInstance(els.sourcePickerModal, {
+    backdrop: true,
+    focus: true,
+  });
+  modal.show();
 }
 
-function stopCameraPolling() {
-  if (state.cameraPollTimer) {
-    clearInterval(state.cameraPollTimer);
-    state.cameraPollTimer = null;
+function hideSourcePickerModal() {
+  if (!els.sourcePickerModal) return;
+  const modal = bootstrap.Modal.getInstance(els.sourcePickerModal);
+  modal?.hide();
+}
+
+function setActiveListItem(el) {
+  els.srcPickerList?.querySelectorAll(".list-group-item").forEach((x) => x.classList.remove("active"));
+  el.classList.add("active");
+}
+
+function renderSourcePicker({ path: cwd, parent, directories } = {}) {
+  // Stable picker state
+  if (!state._srcPicker) state._srcPicker = { cwd: "/", selected: "/" };
+
+  const safeCwd = String(cwd || "/");
+  const safeParent = parent ? String(parent) : null;
+
+  state._srcPicker.cwd = safeCwd;
+  // Keep current selection if it’s still inside this view; otherwise default to cwd
+  if (!state._srcPicker.selected || state._srcPicker.selected === "__ROOTS__") {
+    state._srcPicker.selected = safeCwd;
   }
-  if (state.cameraElapsedTimer) {
-    clearInterval(state.cameraElapsedTimer);
-    state.cameraElapsedTimer = null;
+
+  // Header path + reset list
+  setText(els.srcPickerPath, safeCwd);
+  clearEl(els.srcPickerList);
+
+  // “Use this folder” is always valid: selects current folder by default
+  if (els.srcPickerSelectBtn) els.srcPickerSelectBtn.disabled = false;
+
+  // Up button (no-op on ROOTS or if parent missing)
+  if (els.srcPickerUpBtn) {
+    const disableUp = !safeParent || safeParent === safeCwd || safeCwd === "ROOTS";
+    els.srcPickerUpBtn.disabled = disableUp;
+    els.srcPickerUpBtn.onclick = disableUp ? null : () => openSourceFolderBrowser(safeParent);
+  }
+
+  // Render directory items
+  const list = Array.isArray(directories) ? directories : [];
+  for (const d of list) {
+    if (!d?.name || !d?.path) continue;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "list-group-item list-group-item-action";
+    btn.textContent = d.name;
+
+    // Single click = select
+    btn.addEventListener("click", () => {
+      state._srcPicker.selected = d.path;
+      setActiveListItem(btn);
+      if (els.srcPickerSelectBtn) els.srcPickerSelectBtn.disabled = false;
+    });
+
+    // Double click = enter directory
+    btn.addEventListener("dblclick", () => openSourceFolderBrowser(d.path));
+
+    // Preselect if it matches current selection
+    if (state._srcPicker.selected === d.path) {
+      btn.classList.add("active");
+    }
+
+    els.srcPickerList?.appendChild(btn);
+  }
+
+  // Confirm selection -> set source root, close modal, auto-scan
+  if (els.srcPickerSelectBtn) {
+    els.srcPickerSelectBtn.onclick = async () => {
+      const chosen = state._srcPicker?.selected || state._srcPicker?.cwd || "/";
+      setSourceRoot(chosen);
+      hideSourcePickerModal();
+
+      // start scan immediately
+      await runScan();
+    };
+  }
+}
+
+async function openSourceFolderBrowser(startPath = "/") {
+  try {
+    const p = String(startPath || "/");
+    const url = `/api/fs/browse?path=${encodeURIComponent(p)}`;
+
+    logLine("[fsbrowse] GET", url);
+    const data = await fetchJson(url, { method: "GET", cache: "no-store" });
+
+    // server returns: { path, parent, directories }
+    renderSourcePicker({
+      path: data.path,
+      parent: data.parent,
+      directories: data.directories,
+    });
+
+    showSourcePickerModal();
+  } catch (e) {
+    setLog({ error: "Source folder browse failed", details: e });
+    logLine("[fsbrowse] failed", e);
+  }
+}
+
+async function deleteCurrentSession() {
+  const s = getSelectedSession();
+  if (!s) return setLog("Delete session aborted: No session selected.");
+
+  const sourceRoot = String(state.sourceRoot || "").trim();
+  if (!sourceRoot) {
+    return setLog("Delete session aborted: sourceRoot missing. Select a source folder first.");
+  }
+
+  const files = Array.isArray(s.items) ? s.items : [];
+  if (!files.length) return setLog("Delete session aborted: Session has no files.");
+
+  const msg =
+    `Delete entire session?\n\n` +
+    `Files: ${files.length}\n` +
+    `Range: ${fmtRange(s.start, s.end)}\n\n` +
+    `This will also delete companion files (.xmp, .on1, .onphoto, etc.).`;
+
+  if (!confirm(msg)) return;
+
+  // Preserve current selection if possible (before we mutate state)
+  const preserveSessionId = s.id ?? null;
+  const preservePath = state.currentFilePath ?? null;
+
+  setBusy({ deleting: true });
+
+  try {
+    const res = await fetch("/api/delete-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceRoot, files }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      setLog({ error: "Delete session failed", status: res.status, data });
+      logLine("[delete-session] failed", { status: res.status, data });
+      return;
+    }
+
+    // Server may return different field shapes depending on version:
+    // - Old: originalsDeleted, companionsDeleted, missing
+    // - New: primaryCount, targetCount, deleted, missing
+    const originalsDeleted =
+      data.originalsDeleted ??
+      data.primaryDeleted ??
+      data.primaryCount ??
+      "?";
+
+    const companionsDeleted =
+      data.companionsDeleted ??
+      (Number.isFinite(data.targetCount) && Number.isFinite(data.primaryCount)
+        ? Math.max(0, data.targetCount - data.primaryCount)
+        : (Number.isFinite(data.deleted) && Number.isFinite(data.primaryCount)
+          ? Math.max(0, data.deleted - data.primaryCount)
+          : "?"));
+
+    const deletedTotal =
+      data.deleted ??
+      (Number.isFinite(originalsDeleted) && Number.isFinite(companionsDeleted)
+        ? originalsDeleted + companionsDeleted
+        : "?");
+
+    const missing = data.missing ?? 0;
+    const targetCount =
+      data.targetCount ??
+      (Number.isFinite(deletedTotal) && Number.isFinite(missing)
+        ? deletedTotal + missing
+        : "?");
+
+    // Remove deleted originals from scanItems and refresh UI
+    const deletedSet = new Set(files);
+    state.scanItems = normalizeAndSortItems(state.scanItems.filter((it) => !deletedSet.has(it.path)));
+
+    // Keep selection stable if possible after re-grouping
+    applyScanItemsToUi({ preserveSessionId, preservePath });
+
+    // Reset preview/strip (session might be gone now)
+    uiSetCurrentImage(null);
+    clearEl(els.thumbStrip);
+
+    setLog(
+      `Session deleted\n` +
+        `primary (originals): ${originalsDeleted}\n` +
+        `companions: ${companionsDeleted}\n` +
+        `deleted total: ${deletedTotal}/${targetCount}\n` +
+        `missing: ${missing}\n`
+    );
+
+    logLine("[delete-session] ok", data);
+  } catch (err) {
+    setLog({ error: "Delete session exception", err: String(err) });
+    logLine("[delete-session] exception", err);
+  } finally {
+    setBusy({ deleting: false });
+    uiRenderHeaderMeta(getSelectedSession());
   }
 }
 
 /* ======================================================
-   14) EVENT WIRING + BOOT
+   15) EVENT WIRING + BOOT
 ====================================================== */
 
-on(els.scanBtn, "click", runScan);
+on(els.selSrcBtn, "click", () => {
+  const start = state.sourceRoot && state.sourceRoot !== "/" ? state.sourceRoot : defaultMacStartPath();
+  openSourceFolderBrowser(start);
+});
+
+//on(els.scanBtn, "click", runScan);
 on(els.importBtn, "click", importSelectedSession);
 on(els.deleteBtn, "click", deleteCurrentImage);
+
+on(els.delSessionBtn, "click", deleteCurrentSession);
 
 on(els.sessions, "change", onSessionChange);
 on(els.gapSlider, "input", () => regroupSessionsAndRerender());
@@ -958,30 +1049,16 @@ on(els.title, "input", () => {
   state.userTouchedTitle = true;
 });
 
-on(els.mountTargetBtn, "click", async () => {
-  try {
-    logLine("[target] mount helper click");
-    const r = await fetchJson("/api/target/open", { method: "POST" });
-    logLine("[target] open ok", r);
-  } catch (e) {
-    logLine("[target] open failed", e);
-    setLog(e);
-  }
-});
-
 // Boot: make slider usable before first scan
-uiApplyGapPresets(uniqueSorted(APP.FALLBACK_GAP_PRESETS_MS), { keepNearest: false });
+uiApplyGapPresets(uniqueSorted(APP.FALLBACK_GAP_PRESETS_MS), { keepNearest: true });
 
-// Boot: config + camera polling
+// Boot: config
 loadConfig().catch((e) => {
   setLog(e);
   logLine("[config] load failed", e);
 });
 
-startCameraPolling();
-
 window.addEventListener("beforeunload", () => {
-  stopCameraPolling();
   stopProgressPolling();
   logger.flush?.(); // best-effort
 });

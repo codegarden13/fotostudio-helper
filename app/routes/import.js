@@ -1,53 +1,59 @@
-/**
- * routes/import.js: Import API Route (Server-Side)
- *
- * POST /api/import
- *
- * Creates a stable archive structure under CONFIG.targetRoot:
- *   <targetRoot>/<YYYY>/<MM>/<YYYY-MM-DD title__camera>/{originals,exports}
- *
- * Additionally creates a parallel empty folder:
- *   .../exports/<sessionFolderName>/
- *
- * Copies session files idempotently into /originals, prefixing filenames with camera label:
- *   <camera>__<originalName>
- *
- * Writes:
- *   - .import.log   (human readable)
- *   - session.json  (machine readable; includes optional sessionNote/sessionEnd)
- */
+// routes/import.js
+//
+// Responsibilities:
+// - POST /api/import
+// - Validate + normalize payload
+// - Derive per-file camera labels + session camera label (Mixed/Unknown/single)
+// - Create archive folder structure under CONFIG.targetRoot
+// - Ensure exports/{jpg,tif,jpg-klein}
+// - Delegate actual copying (including companions) to lib/import.js
+// - Write session.json + .import.log
 
 import os from "os";
 import path from "path";
 import fsp from "fs/promises";
+import { log } from "console";
 
 import { CONFIG } from "../config.js";
 import { safeName } from "../lib/fsutil.js";
-import { detectCamera } from "../lib/camera.js";
+import { readImageMeta } from "../lib/exif.js";
+
 import {
   assertWritableRoot,
   buildSessionFolders,
   ensureSessionFolders,
-  copyFileEnsured,
+  // NOTE: you will extend this function’s signature (see notes below)
+  copyOriginalsWithCompanions,
 } from "../lib/import.js";
-import { log } from "console";
 
 /* ======================================================
    Errors / validation helpers
 ====================================================== */
 
-function badRequest(message) {
+function makeErr(message, { status = 500, code = "ERROR", cause } = {}) {
   const err = new Error(message);
-  err.status = 400;
-  err.code = "BAD_REQUEST";
+  err.status = status;
+  err.code = code;
+  if (cause) err.cause = cause;
   return err;
 }
 
+function badRequest(message, code = "BAD_REQUEST") {
+  return makeErr(message, { status: 400, code });
+}
+
 function notSupported(message) {
-  const err = new Error(message);
-  err.code = "NOT_SUPPORTED";
-  err.status = 501;
-  return err;
+  return makeErr(message, { status: 501, code: "NOT_SUPPORTED" });
+}
+
+function requireSupportedPlatform() {
+  const platform = os.platform();
+  if (platform !== "darwin" && platform !== "linux") {
+    throw notSupported(
+      `Import not supported on this platform: ${platform} (supported: darwin, linux)`
+    );
+  }
+  return platform;
 }
 
 function toTsMs(value, label) {
@@ -55,7 +61,7 @@ function toTsMs(value, label) {
   if (value == null) return null;
 
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) throw badRequest(`Invalid ${label}`);
+  if (Number.isNaN(d.getTime())) throw badRequest(`Invalid ${label}`, "BAD_TIMESTAMP");
   return d.getTime();
 }
 
@@ -63,55 +69,7 @@ function asStringArray(v) {
   return Array.isArray(v) ? v.map((x) => String(x || "").trim()).filter(Boolean) : [];
 }
 
-function asOptionalString(v, { maxLen = 4000 } = {}) {
-  const s = typeof v === "string" ? v.trim() : "";
-  if (!s) return "";
-  return s.slice(0, maxLen);
-}
-
-function requireSupportedPlatform() {
-  const platform = os.platform();
-  if (platform !== "darwin" && platform !== "linux") {
-    throw notSupported(`Import not supported on this platform: ${platform} (supported: darwin, linux)`);
-  }
-  return platform;
-}
-
-function requireDetectedCamera(cam) {
-  if (!cam?.label) {
-    const err = new Error("No camera detected");
-    err.code = "NO_CAMERA";
-    err.status = 404;
-    throw err;
-  }
-  return cam;
-}
-
-/* ======================================================
-   Naming helpers
-====================================================== */
-
-function cameraSuffix(label) {
-  return safeName(String(label || "").trim());
-}
-
-function withCameraPrefix(filename, cameraLabel) {
-  const base = String(filename || "");
-  const cam = String(cameraLabel || "").trim();
-  if (!cam) return base;
-
-  const prefix = `${cam}__`;
-  return base.startsWith(prefix) ? base : prefix + base;
-}
-
-/* ======================================================
-   Payload normalization (now includes sessionEnd + sessionNote)
-====================================================== */
-
 function parseKeywords(input) {
-  // Accept either:
-  // - comma-separated string: "kunde:meier, vogel, projekt:herbst"
-  // - array: ["kunde:meier", "vogel"]
   const raw =
     Array.isArray(input) ? input :
       typeof input === "string" ? input.split(",") :
@@ -124,155 +82,164 @@ function parseKeywords(input) {
     const s = String(v ?? "").trim();
     if (!s) continue;
 
-    // normalize whitespace
     const norm = s.replace(/\s+/g, " ");
-
-    // de-dupe (case-insensitive, but preserve original casing in output)
     const key = norm.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
 
     out.push(norm);
   }
-
   return out;
 }
+
+/* ======================================================
+   Payload normalization
+====================================================== */
 
 function normalizeImportPayload(body) {
   const b = body || {};
 
-  // 1) Raw user input (kept for logs/UI, not required in session.json)
   const sessionTitle = String(b.sessionTitle ?? "").trim();
   const sessionNote = String(b.sessionNote ?? "").trim();
-
-  // Accept:
-  // - string: "kunde:meier, vogel"
-  // - array: ["kunde:meier", "vogel"]
   const sessionKeywords = parseKeywords(b.sessionKeywords);
 
-  // 2) Required time + files
   const sessionStart = b.sessionStart;
   const sessionEnd = b.sessionEnd;
 
   const files = asStringArray(b.files);
 
-  if (!files.length) throw badRequest("No files");
-  if (!sessionStart) throw badRequest("Missing sessionStart (first image timestamp)");
+  if (!files.length) throw badRequest("No files", "NO_FILES");
+  if (!sessionStart) throw badRequest("Missing sessionStart (first image timestamp)", "MISSING_SESSION_START");
 
   const firstImageTs = toTsMs(sessionStart, "sessionStart");
   const lastImageTs = sessionEnd ? toTsMs(sessionEnd, "sessionEnd") : null;
 
-  // 3) Folder-safe title (single source of truth for sessionDir naming)
   const title = safeName(sessionTitle).trim() || "Untitled";
 
+  // Optional but strongly recommended for delete/companions scope checks
+  const sourceRoot = typeof b.sourceRoot === "string" ? b.sourceRoot.trim() : "";
+
   return {
-    // client-visible / logging-friendly
+    sourceRoot,
     sessionTitle,
-
-    // canonical, sanitized (used for folders + session.json "title")
     title,
-
-    // timestamps
     firstImageTs,
     lastImageTs,
-
-    // metadata
     sessionNote,
-    sessionKeywords, // always array
-
-    // files
+    sessionKeywords,
     files,
   };
 }
 
 /* ======================================================
-   Copy
+   Camera label derivation
 ====================================================== */
 
-async function copyOriginals({ files, originalsDir, cameraLabel }) {
-  const sorted = [...files].sort();
-  let copied = 0;
-  let skipped = 0;
+function cameraLabelFromMeta(meta) {
+  const make = meta?.cameraMake ? String(meta.cameraMake).trim() : "";
+  const model = meta?.cameraModel ? String(meta.cameraModel).trim() : "";
+  const label = [make, model].filter(Boolean).join(" ").trim();
+  return label || null;
+}
 
-  // also return mapping for session.json
-  const fileMap = [];
+function safeCameraToken(label) {
+  const s = safeName(String(label || "").trim());
+  return s || "Unknown";
+}
 
-  for (const src of sorted) {
-    const originalName = path.basename(src);
-    const destName = withCameraPrefix(originalName, cameraLabel);
-    const dst = path.join(originalsDir, destName);
+/**
+ * Read camera label for every file (best-effort) and compute session label.
+ * Returns:
+ * - sessionCameraLabel: "Mixed" | "<label>" | "Unknown"
+ * - cameraByPath: Map<absolutePath, labelToken>
+ */
+async function deriveCameraMapAndSessionLabel(files) {
+  const cameraByPath = new Map();
+  const sessionDistinct = new Set();
 
-    const { copied: didCopy } = await copyFileEnsured(src, dst);
-    if (didCopy) copied++;
-    else skipped++;
+  // sequential is safest for exiftool; you can add limited concurrency later
+  for (const file of files || []) {
+    let label = null;
+    try {
+      const meta = await readImageMeta(file);
+      label = cameraLabelFromMeta(meta);
+    } catch {
+      // ignore
+    }
 
-    fileMap.push({
-      src,
-      dstName: destName,
-      dstRel: path.posix.join("originals", destName),
-    });
+    const token = safeCameraToken(label);
+    cameraByPath.set(file, token);
+
+    if (token && token !== "Unknown") sessionDistinct.add(token);
+    if (sessionDistinct.size > 1) {
+      // no need to read everything once mixed is confirmed; BUT
+      // keep filling cameraByPath for correctness of per-file prefixes.
+      // so: do NOT break here.
+    }
   }
 
-  return { copied, skipped, fileMap };
+  let sessionCameraLabel = "Unknown";
+  if (sessionDistinct.size === 1) sessionCameraLabel = [...sessionDistinct][0];
+  else if (sessionDistinct.size > 1) sessionCameraLabel = "Mixed";
+
+  return { sessionCameraLabel, cameraByPath };
 }
 
 /* ======================================================
-   Export folder creation (exports/<sessionFolderName>/)
+   Export folder creation
 ====================================================== */
 
-async function ensureExportSessionFolder(folders) {
-  // Ensure base exportsDir exists
+async function ensureExportSubfolders(folders) {
   await fsp.mkdir(folders.exportsDir, { recursive: true });
 
-  const sessionFolderName = path.basename(folders.sessionDir);
-  const exportSessionDir = path.join(folders.exportsDir, sessionFolderName);
+  const exportsJpgDir = path.join(folders.exportsDir, "jpg");
+  const exportsTifDir = path.join(folders.exportsDir, "tif");
+  const exportsJpgSmallDir = path.join(folders.exportsDir, "jpg-klein");
 
-  await fsp.mkdir(exportSessionDir, { recursive: true });
+  await fsp.mkdir(exportsJpgDir, { recursive: true });
+  await fsp.mkdir(exportsTifDir, { recursive: true });
+  await fsp.mkdir(exportsJpgSmallDir, { recursive: true });
 
-  // Verify
-  await fsp.stat(exportSessionDir);
-
-  return exportSessionDir;
+  return { exportsJpgDir, exportsTifDir, exportsJpgSmallDir };
 }
 
 /* ======================================================
-   session.json (machine-readable session metadata)
+   session.json
 ====================================================== */
 
 async function writeSessionJson({
   sessionJsonFile,
   payload,
-  cameraLabel,
+  sessionCameraLabel,
   folders,
-  exportSessionDir,
+  exportDirs,
   targetRoot,
   fileMap,
 }) {
-  const keywords = Array.isArray(payload.sessionKeywords)
-    ? payload.sessionKeywords
-    : [];
-
   const doc = {
     schema: "studio-helper.session.v1",
     createdAt: new Date().toISOString(),
 
-    camera: cameraLabel || null,
-
-    // Canonical title only (no titleRaw)
+    camera: sessionCameraLabel || null,
     title: payload.title,
 
     sessionStart: payload.firstImageTs,
     sessionEnd: payload.lastImageTs ?? null,
 
-    // Session-wide metadata
-    note: payload.sessionNote || "",   // ✅ FIXED
-    keywords,                          // ✅ present even if []
+    note: payload.sessionNote || "",
+    keywords: Array.isArray(payload.sessionKeywords) ? payload.sessionKeywords : [],
+
+    sourceRoot: payload.sourceRoot || null,
 
     targetRoot,
     sessionDir: folders.sessionDir,
     originalsDir: folders.originalsDir,
     exportsDir: folders.exportsDir,
-    exportSessionDir,
+    exports: {
+      jpg: exportDirs.exportsJpgDir,
+      tif: exportDirs.exportsTifDir,
+      jpgSmall: exportDirs.exportsJpgSmallDir,
+    },
 
     files: Array.isArray(fileMap) ? fileMap : [],
   };
@@ -281,45 +248,41 @@ async function writeSessionJson({
 }
 
 /* ======================================================
-   .import.log (human-readable)
+   .import.log
 ====================================================== */
 
 async function writeImportLog({
   logFile,
   platform,
-  cameraLabel,
+  sessionCameraLabel,
   targetRoot,
   folders,
-  exportSessionDir,
+  exportDirs,
   payload,
   copied,
   skipped,
 }) {
-  const note =
-    payload?.sessionNoteRaw
-      ? payload.sessionNoteRaw.replace(/\s+/g, " ").trim()
-      : "";
-
+  const note = (payload?.sessionNote || "").replace(/\s+/g, " ").trim();
   const keywordsArr = Array.isArray(payload?.sessionKeywords) ? payload.sessionKeywords : [];
   const keywordsLine = keywordsArr.length ? keywordsArr.join(", ") : "-";
 
   const lines = [];
   lines.push(`IMPORT START   ${new Date().toISOString()}`);
   lines.push(`platform:      ${platform}`);
-  lines.push(`camera:        ${cameraLabel || "-"}`);
+  lines.push(`camera:        ${sessionCameraLabel || "-"}`);
+  lines.push(`sourceRoot:    ${payload.sourceRoot || "-"}`);
   lines.push(`targetRoot:    ${targetRoot}`);
   lines.push(`sessionDir:    ${folders.sessionDir}`);
   lines.push(`originalsDir:  ${folders.originalsDir}`);
   lines.push(`exportsDir:    ${folders.exportsDir}`);
-  lines.push(`exportSessDir: ${exportSessionDir}`);
+  lines.push(`exports/jpg:   ${exportDirs.exportsJpgDir}`);
+  lines.push(`exports/tif:   ${exportDirs.exportsTifDir}`);
+  lines.push(`exports/jpg-k: ${exportDirs.exportsJpgSmallDir}`);
 
-  // ✅ log title from normalized payload
-  lines.push(`sessionTitle:  ${payload?.sessionTitleRaw || payload?.title || "-"}`);
-
+  lines.push(`sessionTitle:  ${payload?.sessionTitle || payload?.title || "-"}`);
   lines.push(`sessionStart:  ${new Date(payload.firstImageTs).toISOString()}`);
   lines.push(`sessionEnd:    ${payload.lastImageTs ? new Date(payload.lastImageTs).toISOString() : "-"}`);
 
-  // ✅ log note + keywords
   lines.push(`sessionNote:   ${note ? note.slice(0, 140) : "-"}`);
   lines.push(`keywords:      ${keywordsLine}`);
   lines.push("");
@@ -342,9 +305,8 @@ function sendImportError(res, err) {
       code === "NOT_SUPPORTED" ? 501 :
         code === "NOT_WRITABLE" || code === "EACCES" ? 403 :
           code === "ROOT_NOT_FOUND" ? 409 :
-            code === "NO_CAMERA" ? 404 :
-              code === "ENOENT" ? 409 :
-                500;
+            code === "ENOENT" ? 409 :
+              500;
 
   return res.status(status).json({
     error: "Import failed",
@@ -361,22 +323,20 @@ export function registerImportRoutes(app) {
     log("[IMPORT] request received", {
       fileCount: Array.isArray(req.body?.files) ? req.body.files.length : 0,
       targetRoot: CONFIG.targetRoot,
+      sourceRoot: req.body?.sourceRoot,
     });
-
-
 
     try {
       const platform = requireSupportedPlatform();
-
-      const cam = requireDetectedCamera(await detectCamera());
-      const cameraLabel = cam.label;
-
       const payload = normalizeImportPayload(req.body);
 
       const targetRoot = await assertWritableRoot(CONFIG.targetRoot);
 
-      const sessionTitleWithCamera =
-        `${payload.title}__${cameraSuffix(cameraLabel)}`.trim();
+      // Derive per-file camera map (for prefixing) + session label for folder suffix
+      const { sessionCameraLabel, cameraByPath } = await deriveCameraMapAndSessionLabel(payload.files);
+
+      // Folder naming: <YYYY-MM-DD title__camera>
+      const sessionTitleWithCamera = `${payload.title}__${safeCameraToken(sessionCameraLabel)}`.trim();
 
       const folders = buildSessionFolders({
         targetRoot,
@@ -384,42 +344,37 @@ export function registerImportRoutes(app) {
         title: sessionTitleWithCamera,
       });
 
-      // Create base folders: sessionDir + originals + exports
       await ensureSessionFolders(folders);
+      const exportDirs = await ensureExportSubfolders(folders);
 
-      // Create exports/<sessionName>/
-      const exportSessionDir = await ensureExportSessionFolder(folders);
-
-      // Copy originals
-      const result = await copyOriginals({
+      // Delegate copy (companions + RAW→exports/jpg routing happens in lib/import.js)
+      const result = await copyOriginalsWithCompanions({
         files: payload.files,
         originalsDir: folders.originalsDir,
-        cameraLabel,
+        exportsDir: folders.exportsDir,
+        includeJpegForRaw: true,
       });
 
-      // Write session.json
       const sessionJsonFile = path.join(folders.sessionDir, "session.json");
       await writeSessionJson({
         sessionJsonFile,
         payload,
-        cameraLabel,
+        sessionCameraLabel,
         folders,
-        exportSessionDir,
+        exportDirs,
         targetRoot,
-        fileMap: result.fileMap,
+        fileMap: result.fileMap || [],
       });
 
-      // Write .import.log
       const logFile = path.join(folders.sessionDir, ".import.log");
-
       await writeImportLog({
         logFile,
         platform,
-        cameraLabel,
+        sessionCameraLabel,
         targetRoot,
         folders,
-        exportSessionDir,
-        payload, // contains: sessionTitle, firstImageTs, lastImageTs, sessionNote, sessionKeywords, files
+        exportDirs,
+        payload,
         copied: result.copied,
         skipped: result.skipped,
       });
@@ -427,18 +382,22 @@ export function registerImportRoutes(app) {
       return res.json({
         ok: true,
         platform,
-        camera: cameraLabel,
+        camera: sessionCameraLabel,
         targetRoot,
+        sourceRoot: payload.sourceRoot || null,
+
         sessionDir: folders.sessionDir,
         originalsDir: folders.originalsDir,
         exportsDir: folders.exportsDir,
-        exportSessionDir,
+        exports: exportDirs,
+
         sessionJsonFile,
         logFile,
         copied: result.copied,
         skipped: result.skipped,
       });
     } catch (err) {
+      log("[IMPORT] failed", { err: String(err?.message || err), code: err?.code });
       return sendImportError(res, err);
     }
   });

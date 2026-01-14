@@ -1,6 +1,11 @@
-# Temp notes
 
-_*.md 
+
+# eigene (interne) Notes in den Ordnern
+
+app/routes/*.md
+app/lib/*.md
+app/*.md
+
 
 # VS Code project settings
 .vscode/
