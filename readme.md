@@ -103,7 +103,7 @@ Quelle Wählen.
 ![Quelle Importieren](assets/0101_QuelleImportieren.png)
 
 Sessions bilden.
-![Sessions bilden](assets/05_SerieBenennen02.png)
+![Sessions bilden](assets/selectSession.png)
 
 Session beschreiben und exportieren.
 ![Session beschreiben und exportieren](assets/03_SessionExportieren.png)
