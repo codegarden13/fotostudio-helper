@@ -1,12 +1,10 @@
-# fonts (Schriften)
+# Eckdaten: xviz.de Schriften 
 
-https://YOURDOMAIN/assets/fonts/quicksand/quicksand-300-normal.woff2
+https://xviz.de/assets/fonts/quicksand/quicksand-300-normal.woff2
 
 https://localhost:8182/assets/fonts/quicksand/quicksand-300-normal.woff2
 
-Das Menü nutzt Quicksand: Eine moderne, runde, leicht verspielte Sans-Serif-Schrift.
-Die Schrift ist Geometrisch, rund, modern, freundlich,neutral-elegant mit humanistischen Tendenzen.
-
+Das Menü nutzt Quicksand: Eine moderne, runde, leicht verspielte Sans-Serif-Schrift.Sie ist Geometrisch, rund, modern, freundlich,neutral-elegant mit humanistischen Tendenzen.
 
 ```
 └── 📁fonts

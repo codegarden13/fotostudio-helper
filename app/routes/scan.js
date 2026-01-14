@@ -18,7 +18,8 @@
 import path from "path";
 import fsp from "fs/promises";
 
-import { walk, getDateTime } from "../lib/scan.js";
+import { walk} from "../lib/fsutil.js";
+import { getDateTime } from "../lib/scan.js";
 import { readImageMeta } from "../lib/exif.js";
 import { groupSessions } from "../lib/sessions.js";
 import { CONFIG } from "../config.js";
@@ -131,7 +132,10 @@ export function registerScanRoutes(app) {
 
       // 2) Walk sourceRoot recursively and collect candidate files
       setScanProgress({ active: true, current: 0, total: 0, message: "Finding files" });
-      const files = await walk(sourceRoot, ALLOWED_EXTS);
+
+      const files = await walk(sourceRoot, ALLOWED_EXTS, {
+        skipDirNames: new Set([".studio-helper-trash"]),
+      });
 
       // 3) Read timestamps + (optional) camera label
       setScanProgress({

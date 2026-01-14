@@ -135,78 +135,7 @@ function debugExifFallback(filePath, err) {
 
 
 
-/**
- * Walk a directory tree iteratively and return all files
- * matching the allowed extensions.
- *
- * - Skips dotfiles and known system folders
- * - Continues on unreadable *sub*directories
- * - BUT: rootDir must be readable, otherwise throw (so scan doesn't return 0 silently)
- */
-export async function walk(rootDir, allowedExts) {
-  if (!allowedExts || typeof allowedExts.has !== "function") {
-    throw new Error("walk(): allowedExts must be a Set");
-  }
 
-  const root = path.resolve(String(rootDir || "").trim());
-  if (!root) throw new Error("walk(): rootDir is empty");
-
-  // Root must exist + be a directory + be readable
-  let st;
-  try {
-    st = await fsp.stat(root);
-  } catch (e) {
-    e.message = `walk(): rootDir does not exist: ${root}`;
-    throw e;
-  }
-  if (!st.isDirectory()) {
-    throw new Error(`walk(): rootDir is not a directory: ${root}`);
-  }
-
-  try {
-    await fsp.access(root); // will throw on EPERM/EACCES
-  } catch (e) {
-    e.message = `walk(): rootDir not accessible (permissions?): ${root}`;
-    throw e;
-  }
-
-  const results = [];
-  const stack = [root];
-
-  while (stack.length) {
-    const dir = stack.pop();
-
-    let entries;
-    try {
-      entries = await fsp.readdir(dir, { withFileTypes: true });
-    } catch {
-      // subfolders may be unreadable -> skip
-      continue;
-    }
-
-    for (const entry of entries) {
-      const name = entry.name;
-      if (shouldSkipDirentName(name)) continue;
-
-      // Skip hidden files/folders everywhere (optional but usually desired)
-      if (name.startsWith(".")) continue;
-
-      const fullPath = path.join(dir, name);
-
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-        continue;
-      }
-
-      if (!entry.isFile()) continue;
-
-      const ext = extOf(fullPath); // should be lower-case already in your fsutil.js
-      if (allowedExts.has(ext)) results.push(fullPath);
-    }
-  }
-
-  return results;
-}
 
 /**
  * Determine the best timestamp for a file.
