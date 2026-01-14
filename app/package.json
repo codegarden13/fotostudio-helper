@@ -2,7 +2,7 @@
   "name": "fotostudio-helper",
   "version": "1.0.0",
   "description": "Session-based image management and clean import workflow for studios",
-  "author": "Thomas Salomon",
+  "author": "Thomas Salomon (https://xviz.de)",
   "license": "MIT",
   "repository": {
     "type": "git",
