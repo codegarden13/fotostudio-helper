@@ -98,18 +98,18 @@ Darin nach dem Export session.json mit weiterverwendbaren  Meta - Daten über de
 
 ## Screenshots
 Quelle Wählen.
-![Quelle Importieren](assets/01_QuelleImportieren.png)
+![Quelle Importieren](assets/screenshots/01_QuelleImportieren.png)
 
-![Quelle Importieren](assets/0101_QuelleImportieren.png)
+![Quelle Importieren](assets/screenshots/0101_QuelleImportieren.png)
 
 Berechnete Sessions prüfen.
-![Sessions bilden](assets/selectSession.png)
+![Sessions bilden](assets/screenhots/selectSession.png)
 
 Sessions per Schieberegler anpassen.
-![Sessions anpassen](assets/shapeSession.png)
+![Sessions anpassen](assets/screenshots/shapeSession.png)
 
 Session löschen, oder beschreiben und exportieren.
-![Session beschreiben und exportieren](assets/describeSession.png)
+![Session beschreiben und exportieren](assets/screenshots/describeSession.png)
 
 ## Changelog
 
