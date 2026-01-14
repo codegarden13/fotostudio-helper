@@ -102,11 +102,14 @@ Quelle Wählen.
 
 ![Quelle Importieren](assets/0101_QuelleImportieren.png)
 
-Sessions bilden.
+Berechnete Sessions prüfen.
 ![Sessions bilden](assets/selectSession.png)
 
-Session beschreiben und exportieren.
-![Session beschreiben und exportieren](assets/03_SessionExportieren.png)
+Sessions per Schieberegler anpassen.
+![Sessions anpassen](assets/shapeSession.png)
+
+Session löschen, oder beschreiben und exportieren.
+![Session beschreiben und exportieren](assets/describeSession.png)
 
 ## Changelog
 
