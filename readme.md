@@ -1,4 +1,4 @@
-# fotostudio-helper [1.0.9]
+# fotostudio-helper [2.0.0]
 **Fotosession - basierte  Bildverwaltung** und effizienter Import-Workflow für 😎 Fotografen, große Studios, Agenturen oder Broadcast-Produktionen.
 
 <p align="center">
@@ -97,25 +97,25 @@ Basis des Ordnernamens ist der Datestamp des ersten Bildes der Session. Session.
 ## Changelog
 
 <details>
-<summary>Upcoming Version 2.0.0</summary>
+<summary>Current Version 2.0.0</summary>
 
-### fotostudio-helper [2.0.0] - (not yet released)
 
-#### ADDED.
+
+### ADDED.
 - Folder selection modal for instant source scan ("looking for photosessions"). Now, instead of a mounted camera volume, any source is selectable.
 - Complete sessions can be deleted (Super hilfreich, wenn man mit dem Slider eine Reihe "kaputter" Bilder gefunden hat)
-- 
-#### FIXED.
+
+### FIXED.
 - Session gap calculation
 - Exposure reading
 
-#### CHANGED.
+### CHANGED.
 - session folder names get __mixed suffix if they contain mixed cameras.
 - files suffix for the camera is created based on exif or "unknown".
 - Instead of assuming a source folder has no subdirectories, the app will now search for main files (raw formats or jpg) in the source (recursive). Then every folder inside the source is scanned for corresponding companion files. So no matter how messed the folder is, the app will put together what belongs together. This means: If there are compagnion files near the raw, process them to the session folder. If the compagnion file is a jpg, put it to /sessionname/exports/jpg
 
 
-#### REMOVED.
+### REMOVED.
 - Camera constraints, Camera polling
 
 </details>
