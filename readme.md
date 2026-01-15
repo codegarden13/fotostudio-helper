@@ -10,7 +10,7 @@ Fotosession - basierte  Bildverwaltung, effizienter  - Import-Workflow für Bild
 
 <p align="center"><em>No matter how you switch photo devices: your work is captured. Safe.</em></p>
 
-Industriestandard. Nichts wird gelöscht, nichts wird überschreiben, Single Source of Truth.
+Industriestandard. Nichts wird gelöscht, nichts wird überschreiben. Ergebnis: Single Source of Truth - Dein Langzeitarchiv.
 
 ## Anwendung, Usecases
 
