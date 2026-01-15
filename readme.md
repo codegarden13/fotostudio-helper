@@ -97,18 +97,22 @@ Darin nach dem Export session.json mit weiterverwendbaren  Meta - Daten über de
 
 
 ## Screenshots
+
 Quelle Wählen.
+
 ![Quelle Importieren](assets/screenshots/01_QuelleImportieren.png)
 
 ![Quelle Importieren](assets/screenshots/0101_QuelleImportieren.png)
 
-Berechnete Sessions prüfen.
+Berechnete Sessions prüfen...
+
 ![Sessions bilden](assets/screenshots/selectSession.png)
 
-Sessions per Schieberegler anpassen.
+... und per Gap - Schieberegler den Zeitversatz an Deinen Fotomoment anpassen.
+
 ![Sessions anpassen](assets/screenshots/shapeSession.png)
 
-Session löschen, oder beschreiben und exportieren.
+Nun die Session löschen, oder beschreiben und exportieren.
 
 ![Session beschreiben und exportieren](assets/screenshots/describeSession.png)
 
