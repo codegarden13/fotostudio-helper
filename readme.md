@@ -152,7 +152,8 @@ Darin nach dem Export session.json mit weiterverwendbaren  Meta - Daten über de
 
 ### PLANNED.
 
-Session UUID forever - immutable fingerprint
+- Session UUID forever - immutable fingerprint
+- better (more human-thinking-like) session shaping
 
 <details>
 
