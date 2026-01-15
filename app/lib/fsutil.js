@@ -16,6 +16,7 @@ import fsp from "fs/promises";
 import crypto from "crypto";
 import { CONFIG } from "../config.js";
 
+
 /* ======================================================
    Small helpers
 ====================================================== */
@@ -94,6 +95,8 @@ export function shouldSkipDirentName(name) {
   return false;
 }
 
+//import { extOf, shouldSkipDirentName } from "./fsutil.js";
+
 /* ======================================================
    Walk
 ====================================================== */
@@ -103,19 +106,15 @@ export function shouldSkipDirentName(name) {
  *
  * Behavior:
  * - Root must exist, be a directory, and be readable (otherwise throws)
- * - Unreadable *subdirectories* are skipped (does not abort whole walk)
- * - Hidden files/dirs are skipped by default (Finder-like)
- * - Common system noise is skipped via shouldSkipDirentName()
+ * - Unreadable subdirectories are skipped (scan continues)
+ * - Hidden files / system noise / app trash are ALWAYS skipped
+ * - `.studio-helper-trash` is never entered or scanned
  *
  * @param {string} rootDir
- * @param {Set<string>} allowedExts - lower-case extensions: new Set([".arw", ".jpg"])
- * @param {object} [opts]
- * @param {boolean} [opts.skipHidden=true]
- * @param {Set<string>|string[]} [opts.skipDirNames] - additional directory basenames to skip
- * @param {(fullPath:string, dirent:import("fs").Dirent)=>boolean} [opts.shouldSkip]
+ * @param {Set<string>} allowedExts - lower-case extensions, e.g. new Set([".arw", ".jpg"])
  * @returns {Promise<string[]>} absolute file paths
  */
-export async function walk(rootDir, allowedExts, opts = {}) {
+export async function walk(rootDir, allowedExts) {
   if (!allowedExts || typeof allowedExts.has !== "function") {
     const e = new Error("walk(): allowedExts must be a Set");
     e.code = "BAD_ARGS";
@@ -129,17 +128,6 @@ export async function walk(rootDir, allowedExts, opts = {}) {
     throw e;
   }
 
-  const {
-    skipHidden = true,
-    skipDirNames = null,
-    shouldSkip = null,
-  } = opts;
-
-  const skipDirSet =
-    skipDirNames
-      ? new Set(Array.isArray(skipDirNames) ? skipDirNames : Array.from(skipDirNames))
-      : null;
-
   // Root must exist + be directory
   let st;
   try {
@@ -150,13 +138,14 @@ export async function walk(rootDir, allowedExts, opts = {}) {
     e.cause = err;
     throw e;
   }
+
   if (!st.isDirectory()) {
     const e = new Error(`walk(): rootDir is not a directory: ${root}`);
     e.code = "NOT_A_DIRECTORY";
     throw e;
   }
 
-  // Root must be readable (avoid "silent 0 files" result)
+  // Root must be readable (avoid silent empty scans)
   try {
     await fsp.access(root, fs.constants.R_OK);
   } catch (err) {
@@ -176,25 +165,19 @@ export async function walk(rootDir, allowedExts, opts = {}) {
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch {
-      continue; // unreadable subdir => skip
+      // unreadable subdirectory → skip silently
+      continue;
     }
 
     for (const entry of entries) {
       const name = entry.name;
 
-      // Global noise filter
+      // ONE canonical skip rule (includes .studio-helper-trash)
       if (shouldSkipDirentName(name)) continue;
-
-      // Optional hidden filtering (already covered by shouldSkipDirentName, but keep option for future)
-      if (skipHidden && name.startsWith(".")) continue;
 
       const fullPath = path.join(dir, name);
 
-      // Optional caller hook
-      if (typeof shouldSkip === "function" && shouldSkip(fullPath, entry)) continue;
-
       if (entry.isDirectory()) {
-        if (skipDirSet && skipDirSet.has(name)) continue;
         stack.push(fullPath);
         continue;
       }
@@ -202,7 +185,9 @@ export async function walk(rootDir, allowedExts, opts = {}) {
       if (!entry.isFile()) continue;
 
       const ext = extOf(fullPath);
-      if (allowedExts.has(ext)) results.push(fullPath);
+      if (allowedExts.has(ext)) {
+        results.push(fullPath);
+      }
     }
   }
 

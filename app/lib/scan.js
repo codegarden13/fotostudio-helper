@@ -1,58 +1,29 @@
 // lib/scan.js
 //
 // Responsibilities:
-// - Walk a camera/DCIM directory and collect supported files
 // - Extract a reliable timestamp per file (EXIF preferred, filesystem fallback)
 // - Never block indefinitely on EXIF reads
 //
-// Design notes:
-// - Iterative directory walk (no recursion depth risk)
-// - Per-file EXIF timeout to avoid scan hangs
-// - Skips common system folders on removable volumes
-// - Robust EXIF timestamp extraction (handles ExifDateTime/Date/string)
-// - Optional debug logging for EXIF fallbacks (off by default)
+// Notes:
+// - Directory traversal belongs in fsutil.walk()
+// - Skip policies (.studio-helper-trash etc.) belong in fsutil.shouldSkipDirentName()
+// - This module is strictly "timestamp extraction"
 
-
-import path from "path";
 import fsp from "fs/promises";
 import { exiftool } from "exiftool-vendored";
-import { extOf } from "./fsutil.js";
-
-
-
-function shouldSkipDirentName(name) {
-  if (!name) return true;
-  // keep your existing skip set if you have it; otherwise:
-  return (
-    name === ".Spotlight-V100" ||
-    name === ".Trashes" ||
-    name === ".fseventsd" ||
-    name === "System Volume Information"
-  );
-}
 
 /* ======================================================
    Configuration
-   ====================================================== */
+====================================================== */
 
-const CONFIG = {
-  EXIF_TIMEOUT_MS: 2500,
+const EXIF_TIMEOUT_MS = 2500;
 
-  // Skip common system directories on removable volumes
-  SKIP_DIR_NAMES: new Set([
-    ".Spotlight-V100",
-    ".Trashes",
-    ".fseventsd",
-    "System Volume Information",
-  ]),
-
-  // Set true temporarily when debugging “why are my gaps tiny?”
-  DEBUG_EXIF_FALLBACK: false,
-};
+// Set true temporarily when debugging “why are my gaps tiny?”
+const DEBUG_EXIF_FALLBACK = false;
 
 /* ======================================================
    Internal helpers
-   ====================================================== */
+====================================================== */
 
 function withTimeout(promise, ms, label = "timeout") {
   let timer;
@@ -64,12 +35,12 @@ function withTimeout(promise, ms, label = "timeout") {
 }
 
 function isValidDate(d) {
-  return d instanceof Date && !Number.isNaN(d.getTime());
+  return d instanceof Date && Number.isFinite(d.getTime());
 }
 
 /**
  * Convert various EXIF tag value types into a JS Date (or null).
- * exiftool-vendored typically returns ExifDateTime objects with toJSDate().
+ * exiftool-vendored may return ExifDateTime objects with toJSDate() or toDate().
  */
 function toDate(value) {
   if (!value) return null;
@@ -80,12 +51,29 @@ function toDate(value) {
     return isValidDate(d) ? d : null;
   }
 
+  // Some versions/types expose toDate()
+  if (typeof value?.toDate === "function") {
+    const d = value.toDate();
+    return isValidDate(d) ? d : null;
+  }
+
   // Already a JS Date
   if (isValidDate(value)) return value;
 
-  // Sometimes strings appear depending on tags/types
+  // String (ExifTool often uses "YYYY:MM:DD HH:MM:SS" formats)
   if (typeof value === "string") {
-    const d = new Date(value);
+    const s = value.trim();
+    if (!s) return null;
+
+    // Normalize common ExifTool string: "YYYY:MM:DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM:SS"
+    const m = s.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+    if (m) {
+      const iso = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
+      const t = Date.parse(iso);
+      return Number.isFinite(t) ? new Date(t) : null;
+    }
+
+    const d = new Date(s);
     return isValidDate(d) ? d : null;
   }
 
@@ -94,7 +82,8 @@ function toDate(value) {
 
 /**
  * Pick the most reliable capture timestamp from an EXIF tag object.
- * Order is intentional:
+ *
+ * Preference order:
  * - SubSecDateTimeOriginal / DateTimeOriginal: best capture time
  * - SubSecCreateDate / CreateDate: often capture time on many cameras
  * - GPSDateTime: sometimes present if GPS recorded
@@ -122,20 +111,15 @@ function pickExifDate(tags) {
   return null;
 }
 
-
-
 function debugExifFallback(filePath, err) {
-  if (!CONFIG.DEBUG_EXIF_FALLBACK) return;
+  if (!DEBUG_EXIF_FALLBACK) return;
+  // eslint-disable-next-line no-console
   console.warn("[scan.getDateTime] EXIF failed, using mtime:", filePath, String(err));
 }
 
 /* ======================================================
    Public API
-   ====================================================== */
-
-
-
-
+====================================================== */
 
 /**
  * Determine the best timestamp for a file.
@@ -150,19 +134,17 @@ function debugExifFallback(filePath, err) {
  * @returns {Promise<Date>}
  */
 export async function getDateTime(filePath) {
-  try {
-    const tags = await withTimeout(
-      exiftool.read(filePath),
-      CONFIG.EXIF_TIMEOUT_MS,
-      "exif-read-timeout"
-    );
+  const p = typeof filePath === "string" ? filePath.trim() : "";
+  if (!p) throw new Error("getDateTime(): filePath is empty");
 
+  try {
+    const tags = await withTimeout(exiftool.read(p), EXIF_TIMEOUT_MS, "exif-read-timeout");
     const exifDate = pickExifDate(tags);
     if (exifDate) return exifDate;
   } catch (err) {
-    debugExifFallback(filePath, err);
+    debugExifFallback(p, err);
   }
 
-  const stat = await fsp.stat(filePath);
+  const stat = await fsp.stat(p);
   return stat.mtime;
 }

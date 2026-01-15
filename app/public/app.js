@@ -3,11 +3,10 @@
  *
  * Frontend controller (single-page app).
  *
- * Notes (important)
- * - Camera polling has been removed. Scan works from a selected source folder.
- * - Source selection modal is Bootstrap-based and is the only supported picker.
- * - This file is refactored to remove: duplicate handlers, duplicate functions, dead camera code,
- *   and the broken fsbrowse GET-with-body variant.
+ * Notes 
+ * - Scan works from a selected source folder.
+ * - Source selection Bootstrap-based and is the only supported picker.
+ * 
  */
 
 import { createLogger } from "./logger.js";
@@ -31,7 +30,6 @@ import {
 
 const APP = {
   PROGRESS_POLL_MS: 250,
-
   FALLBACK_GAP_PRESETS_MS: [
     5_000,
     15_000,
@@ -131,18 +129,13 @@ const state = {
   scanItems: [],
   sessions: [],
   currentFilePath: null,
-
   busy: { scanning: false, importing: false, deleting: false },
-
   progressTimer: null,
-
   defaultTargetRoot: null,
   currentTargetRoot: null,
-
   gapPresetsMs: [],
   gapPresetIndex: 0,
   gapMs: 30 * 60 * 1000,
-
   userTouchedTitle: false,
 
   // Source folder (selected via modal)
@@ -154,6 +147,10 @@ function defaultMacStartPath() {
   // Browser JS can’t expand "~" by itself; let the server resolve it.
   // We pass a token the server understands (recommended), or we just start at "/Volumes".
   return "USER_HOME_PICTURES";
+}
+
+function uiRenderHeader() {
+  uiRenderHeaderMeta(getSelectedSession());
 }
 
 /* ======================================================
@@ -246,8 +243,8 @@ function uiRenderTarget() {
 
   setText(els.destModeHint, isOverride ? "Export-Workflow aktiv" : "");
 
-  uiRenderHeaderMeta(getSelectedSession());
-  /*uiRenderImportButton();*/
+  uiRenderHeader();
+  
   uiUpdateImportEnabled();
 }
 
@@ -314,7 +311,7 @@ function uiRenderSessions(list) {
     els.sessions.add(new Option(label, String(i)));
   });
 
-  uiRenderHeaderMeta(getSelectedSession());
+  uiRenderHeader();
 }
 
 function uiRenderSessionMeta(s) {
@@ -474,7 +471,7 @@ function gapSyncFromSlider() {
     els.gapLegend.textContent = `${first} — ${cur} — ${last} (${idx + 1}/${state.gapPresetsMs.length})`;
   }
 
-  uiRenderHeaderMeta(getSelectedSession());
+  uiRenderHeader();
 }
 
 function getSelectedSession() {
@@ -548,9 +545,6 @@ function applyScanItemsToUi({ preserveSessionId = null, preservePath = null } = 
   regroupSessionsAndRerender({ preserveSessionId, preservePath });
 }
 
-
-
-
 function resetScanUiAndState() {
   clearEl(els.sessions);
   clearEl(els.thumbStrip);
@@ -605,7 +599,7 @@ async function runScan() {
   } finally {
     stopProgressPolling();
     setBusy({ scanning: false });
-    uiRenderHeaderMeta(getSelectedSession());
+    uiRenderHeader();
   }
 }
 
@@ -674,7 +668,7 @@ async function importSelectedSession() {
     logLine("[import] failed", e);
   } finally {
     setBusy({ importing: false });
-    uiRenderHeaderMeta(getSelectedSession());
+    uiRenderHeader();
     uiUpdateImportEnabled();
     //uiRenderImportButton();
   }
@@ -773,7 +767,7 @@ async function deleteCurrentImage() {
   } finally {
     // 13) Always restore UI gating
     setBusy({ deleting: false });
-    uiRenderHeaderMeta(getSelectedSession());
+    uiRenderHeader();
   }
 }
 
@@ -1023,7 +1017,7 @@ async function deleteCurrentSession() {
     logLine("[delete-session] exception", err);
   } finally {
     setBusy({ deleting: false });
-    uiRenderHeaderMeta(getSelectedSession());
+    uiRenderHeader();
   }
 }
 
