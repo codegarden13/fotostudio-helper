@@ -1,41 +1,45 @@
 // routes/scan.js
 //
-// Responsibilities:
-// - GET  /api/scan/progress  (polled by frontend)
-// - POST /api/scan
-//   - Scan a user-selected sourceRoot (recursive)
-//   - Collect candidate image/RAW files by extension
-//   - Extract timestamps (EXIF via readImageMeta; fallback via getDateTime)
-//   - Return:
-//     - items:    [{ path, ts }] sorted by ts asc
-//     - sessions: server-default grouping for instant initial render
+// POST /api/scan
+// Body: { sourceRoot: string }
 //
-// Hardening:
-// - Validates sourceRoot
-// - Returns helpful 4xx for missing/invalid paths
-// - Keeps progress state consistent on all exits
+// GET /api/scan/progress
+// Response: { active, current, total, message }
+//
+// Responsibilities:
+// - Validate platform + request payload
+// - Traverse `sourceRoot` and collect supported *original* image files (RAW + JPEG)
+// - Derive a stable timestamp per file (EXIF preferred, filesystem mtime fallback)
+// - Publish progress for the UI polling endpoint
+//
+// Notes:
+// - Trash exclusion happens centrally in lib/fsutil.walk() (never enters `.studio-helper-trash`).
+// - This route returns a flat `items[]` list only; the client performs session grouping.
+// - Timestamp extraction is the slow part; we run it with bounded concurrency.
 
 import path from "path";
-import fsp from "fs/promises";
 
-import { walk} from "../lib/fsutil.js";
-import { getDateTime } from "../lib/scan.js";
-import { readImageMeta } from "../lib/exif.js";
-import { groupSessions } from "../lib/sessions.js";
 import { CONFIG } from "../config.js";
-import {
-  getScanProgress,
-  setScanProgress,
-  resetScanProgress,
-} from "../lib/progress.js";
+import { walk } from "../lib/fsutil.js";
+import { getDateTime } from "../lib/scan.js";
+import { setScanProgress, getScanProgress } from "../lib/progress.js";
+import { LOG } from "../server.js";
 
 /* ======================================================
-   Small utilities
+   Supported extensions (originals only)
 ====================================================== */
 
-function isNonEmptyString(x) {
-  return typeof x === "string" && x.trim().length > 0;
-}
+// Keep this intentionally narrow: these are "session items".
+// Companions are resolved separately (import/delete logic).
+const RAW_EXTS = new Set([
+  ".arw", ".cr2", ".cr3", ".nef", ".raf", ".dng", ".rw2", ".orf", ".pef", ".srw",
+]);
+const JPEG_EXTS = new Set([".jpg", ".jpeg"]);
+const ALLOWED_EXTS = new Set([...RAW_EXTS, ...JPEG_EXTS]);
+
+/* ======================================================
+   Error + payload helpers
+====================================================== */
 
 function httpError(status, message, code) {
   const err = new Error(message);
@@ -44,162 +48,200 @@ function httpError(status, message, code) {
   return err;
 }
 
-function sendError(res, err, fallbackStatus = 500) {
-  const status = Number.isInteger(err?.status) ? err.status : fallbackStatus;
-  const code = err?.code || err?.cause?.code;
+function sendError(res, err) {
+  const status = Number.isInteger(err?.status) ? err.status : 500;
   return res.status(status).json({
-    error: String(err?.message || err),
-    code,
+    error: "Scan failed",
+    details: { error: String(err?.message || err), code: err?.code },
   });
 }
 
-function ensureSupportedPlatform() {
-  if (CONFIG.supported === false) {
-    throw httpError(
-      501,
-      CONFIG.unsupportedReason || `Platform not supported: ${CONFIG.platform}`,
-      "NOT_SUPPORTED"
-    );
-  }
+function asNonEmptyString(v) {
+  const s = String(v ?? "").trim();
+  return s || null;
 }
 
-function normalizeSourceRoot(raw) {
-  const s = String(raw ?? "").trim();
-  if (!s) return "";
-  if (s.includes("\0")) throw httpError(400, "Invalid path", "BAD_PATH");
+/**
+ * Normalize the incoming sourceRoot.
+ *
+ * - Returns an absolute path or null.
+ * - Does NOT enforce a global allowlist root; the UI may select arbitrary folders.
+ * - `walk()` still enforces existence/readability by throwing if root is invalid.
+ */
+function normalizeSourceRoot(input) {
+  const s = asNonEmptyString(input);
+  if (!s) return null;
   return path.resolve(s);
 }
 
-async function assertDirectory(p) {
-  try {
-    const st = await fsp.stat(p);
-    if (!st.isDirectory()) throw httpError(400, `Not a directory: ${p}`, "NOT_A_DIRECTORY");
-  } catch (e) {
-    if (e?.code === "ENOENT") throw httpError(404, `Directory not found: ${p}`, "SOURCE_NOT_FOUND");
-    if (e?.code === "EACCES" || e?.code === "EPERM") throw httpError(403, `No access: ${p}`, "SOURCE_FORBIDDEN");
-    throw e;
-  }
-}
-
-// Camera-independent allowed extensions (keep here for now; later move to CONFIG.scanExts)
-const ALLOWED_EXTS = new Set([
-  ".arw", ".cr2", ".cr3", ".nef", ".raf", ".dng",
-  ".rw2", ".orf", ".pef", ".srw",
-  ".jpg", ".jpeg",
-  ".tif", ".tiff",
-  ".heic",
-]);
-
-function deriveCameraLabel(meta) {
-  const make = meta?.cameraMake ? String(meta.cameraMake).trim() : "";
-  const model = meta?.cameraModel ? String(meta.cameraModel).trim() : "";
-  const label = [make, model].filter(Boolean).join(" ").trim();
-  return label || null;
+/**
+ * Clamp scan concurrency to a sane range.
+ * - Avoids disk thrash on HDD/USB if someone sets it too high.
+ * - Avoids accidental 0/NaN disabling work.
+ */
+function getScanConcurrency() {
+  const raw = Number(CONFIG.scanConcurrency);
+  const v = Number.isFinite(raw) ? raw : 8;
+  return Math.max(1, Math.min(v, 32));
 }
 
 /* ======================================================
-   Routes
+   Concurrency utility
+====================================================== */
+
+/**
+ * Map over `list` with bounded concurrency.
+ *
+ * - `mapper(item, index)` runs for each item and may throw (caller decides how to handle).
+ * - `onProgress(done, total)` is invoked after each item completes (not when it starts).
+ *
+ * @template T,U
+ * @param {T[]} list
+ * @param {number} concurrency
+ * @param {(item:T, index:number)=>Promise<U>} mapper
+ * @param {(done:number, total:number)=>void} [onProgress]
+ * @returns {Promise<U[]>}
+ */
+async function mapWithConcurrency(list, concurrency, mapper, onProgress) {
+  const n = Array.isArray(list) ? list.length : 0;
+  if (n === 0) return [];
+
+  const c = Math.max(1, Math.min(Number(concurrency) || 1, 32));
+  const results = new Array(n);
+
+  let nextIndex = 0;
+  let done = 0;
+
+  async function worker() {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= n) return;
+
+      results[i] = await mapper(list[i], i);
+
+      done++;
+      if (typeof onProgress === "function") onProgress(done, n);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(c, n) }, () => worker()));
+  return results;
+}
+
+/* ======================================================
+   Route registration
 ====================================================== */
 
 export function registerScanRoutes(app) {
-  /* ---------------------------
-     Progress endpoint
-  ---------------------------- */
-  app.get("/api/scan/progress", (_req, res) => {
-    res.json(getScanProgress());
-  });
-
-  /* ---------------------------
-     Scan endpoint (source folder, recursive)
-  ---------------------------- */
+  /**
+   * Start a scan for originals (RAW + JPEG) under `sourceRoot`.
+   *
+   * Request:
+   *   POST /api/scan
+   *   Body: { sourceRoot: string }
+   *
+   * Response:
+   *   { ok: true, sourceRoot, items: [{path, ts}], count }
+   */
   app.post("/api/scan", async (req, res) => {
-    resetScanProgress();
-
     try {
-      ensureSupportedPlatform();
-
-      // 1) Source root (selected by user)
-      const sourceRoot = normalizeSourceRoot(req.body?.sourceRoot || CONFIG.sourceRoot);
-      if (!sourceRoot) {
+      if (CONFIG.supported === false) {
         throw httpError(
-          400,
-          "Missing sourceRoot (select a source folder first)",
-          "MISSING_SOURCE_ROOT"
+          501,
+          CONFIG.unsupportedReason || "Platform not supported",
+          "NOT_SUPPORTED"
         );
       }
 
-      await assertDirectory(sourceRoot);
+      const sourceRoot =
+        normalizeSourceRoot(req.body?.sourceRoot) ||
+        normalizeSourceRoot(CONFIG.sourceRoot);
 
-      // 2) Walk sourceRoot recursively and collect candidate files
-      setScanProgress({ active: true, current: 0, total: 0, message: "Finding files" });
+      if (!sourceRoot) {
+        throw httpError(400, "sourceRoot missing", "MISSING_SOURCE_ROOT");
+      }
 
-      const files = await walk(sourceRoot, ALLOWED_EXTS, {
-        skipDirNames: new Set([".studio-helper-trash"]),
+      // Ensure the UI immediately sees an active scan.
+      setScanProgress({
+        active: true,
+        current: 0,
+        total: 0,
+        message: "Walking folders…",
       });
 
-      // 3) Read timestamps + (optional) camera label
+      // 1) Collect file paths (trash exclusion happens inside walk()).
+      const files = await walk(sourceRoot, ALLOWED_EXTS);
+
+      if (!files.length) {
+        setScanProgress({ active: false, current: 0, total: 0, message: "Done" });
+        LOG.info("[scan] ok (empty)", { sourceRoot });
+        return res.json({ ok: true, sourceRoot, items: [], count: 0 });
+      }
+
       setScanProgress({
         active: true,
         current: 0,
         total: files.length,
-        message: "Reading EXIF timestamps",
+        message: "Reading timestamps…",
       });
 
-      const items = [];
-      let cameraGuess = null;
+      // 2) Resolve timestamps with bounded concurrency.
+      // getDateTime() already has EXIF timeout and filesystem fallback.
+      const CONCURRENCY = getScanConcurrency();
 
-      for (let i = 0; i < files.length; i++) {
-        const filePath = files[i];
+      // Progress throttling: UI polls anyway, so avoid spamming shared state.
+      const PROGRESS_EVERY = Math.max(10, Math.floor(files.length / 50)); // ~50 updates max
+      let lastReported = 0;
 
-        if (!isNonEmptyString(filePath)) {
-          setScanProgress({ current: i + 1 });
-          continue;
-        }
-
-        try {
-          // Prefer rich EXIF meta
-          const meta = await readImageMeta(filePath);
-
-          // createdAt is ms epoch (per your refactored exif.js)
-          let ts = Number(meta?.createdAt);
-
-          // Fallback: if createdAt missing/invalid, try getDateTime()
-          if (!Number.isFinite(ts)) {
-            const dt = await getDateTime(filePath);
-            ts = dt instanceof Date ? dt.getTime() : Number.NaN;
+      const mapped = await mapWithConcurrency(
+        files,
+        CONCURRENCY,
+        async (filePath) => {
+          try {
+            const d = await getDateTime(filePath);
+            const ts = d?.getTime();
+            return Number.isFinite(ts) ? { path: filePath, ts } : null;
+          } catch (err) {
+            // Skip per-file failures; do not abort a whole scan.
+            LOG.warn("[scan] getDateTime failed", { filePath, err: String(err) });
+            return null;
           }
-
-          if (Number.isFinite(ts)) {
-            items.push({ path: filePath, ts });
-
-            // Fill cameraGuess once from first good meta
-            if (!cameraGuess) cameraGuess = deriveCameraLabel(meta);
+        },
+        (done, total) => {
+          if (done === total || done - lastReported >= PROGRESS_EVERY) {
+            lastReported = done;
+            setScanProgress({
+              active: true,
+              current: done,
+              total,
+              message: "Reading timestamps…",
+            });
           }
-        } catch {
-          // Skip unreadable files; keep progress moving
-        } finally {
-          setScanProgress({ current: i + 1 });
         }
-      }
+      );
 
-      // 4) Sort ascending (stable input for client grouping)
-      items.sort((a, b) => a.ts - b.ts);
+      const items = mapped.filter(Boolean);
 
-      // 5) Server-side default grouping (client still regroups with slider)
-      const sessions = groupSessions(items, CONFIG.sessionGapMinutes);
-
-      setScanProgress({ active: false, message: "" });
-
-      return res.json({
-        ok: true,
-        sourceRoot,
-        cameraGuess, // optional (can be null)
-        items,
-        sessions,
+      setScanProgress({
+        active: false,
+        current: files.length,
+        total: files.length,
+        message: "Done",
       });
+
+      LOG.info("[scan] ok", { sourceRoot, files: files.length, items: items.length });
+      return res.json({ ok: true, sourceRoot, items, count: items.length });
     } catch (err) {
-      setScanProgress({ active: false, message: "" });
+      setScanProgress({ active: false, current: 0, total: 0, message: "Failed" });
       return sendError(res, err);
     }
+  });
+
+  /**
+   * Progress endpoint for the UI polling loop.
+   * Keep it cheap and side-effect free.
+   */
+  app.get("/api/scan/progress", (req, res) => {
+    return res.json(getScanProgress());
   });
 }

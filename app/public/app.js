@@ -24,6 +24,16 @@ import {
   groupSessionsClient,
 } from "./lib/util.js";
 
+import {
+  apiGetConfig,
+  apiBrowseFs,
+  apiScan,
+  apiScanProgress,
+  apiExposure,
+  apiImport,
+  apiDeleteFile,
+  apiDeleteSession,
+} from "./lib/api.js";
 /* ======================================================
    01) CONFIG / CONSTANTS
 ====================================================== */
@@ -69,7 +79,7 @@ const els = {
   currentDestInline: document.getElementById("currentDestInline"),
   destModeHint: document.getElementById("destModeHint"),
   chooseDestBtn: document.getElementById("chooseDestBtn"),
-  
+
 
   // Header
   hdrSessionId: document.getElementById("hdrSessionId"),
@@ -174,16 +184,7 @@ function clearEl(el) {
   if (el) el.innerHTML = "";
 }
 
-/* ======================================================
-   06) API (candidate for public/lib/api.js)
-====================================================== */
 
-async function fetchJson(url, init) {
-  const res = await fetch(url, init);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw data;
-  return data;
-}
 
 /* ======================================================
    07) STATE MUTATORS
@@ -200,7 +201,7 @@ function setSourceRoot(p) {
   logLine("[sourceRoot] set", state.sourceRoot);
 }
 
-  //#TODO:Was ist der unterschied der beiden Log varianten oben
+//#TODO:Was ist der unterschied der beiden Log varianten oben
 
 
 
@@ -244,7 +245,7 @@ function uiRenderTarget() {
   setText(els.destModeHint, isOverride ? "Export-Workflow aktiv" : "");
 
   uiRenderHeader();
-  
+
   uiUpdateImportEnabled();
 }
 
@@ -415,10 +416,7 @@ async function uiSetCurrentImage(path) {
   }
 }
 
-async function fetchExposure(filePath) {
-  const url = `/api/exposure?path=${encodeURIComponent(filePath)}`;
-  return fetchJson(url, { cache: "no-store" });
-}
+
 
 /* ======================================================
    11) GAP PRESETS + GROUPING
@@ -504,8 +502,10 @@ function ensureSelection({ preferSessionId = null, fallbackPath = null } = {}) {
    12) FLOWS (config, scan, import, delete)
 ====================================================== */
 
+
+
 async function loadConfig() {
-  const cfg = await fetchJson("/api/config", { cache: "no-store" });
+  const cfg = await apiGetConfig({ logLine });
   state.defaultTargetRoot = cfg.targetRoot || "";
   state.currentTargetRoot = null;
   uiRenderTarget();
@@ -565,12 +565,6 @@ function resetScanUiAndState() {
   uiRenderHeaderMeta(null);
 }
 
-async function selectSourceAndScan(selectedPath) {
-  setSourceRoot(selectedPath);
-  hideSourcePickerModal();
-  await runScan(); // auto-scan immediately
-}
-
 async function runScan() {
   resetScanUiAndState();
 
@@ -583,11 +577,7 @@ async function runScan() {
   startProgressPolling();
 
   try {
-    const data = await fetchJson("/api/scan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sourceRoot: state.sourceRoot }),
-    });
+    const data = await apiScan(state.sourceRoot, { logLine });
 
     state.scanItems = normalizeAndSortItems(data.items);
     applyScanItemsToUi();
@@ -603,29 +593,64 @@ async function runScan() {
   }
 }
 
+/**
+ * Import the currently selected session into the configured targetRoot and
+ * (optionally/required) delete the source session afterwards.
+ *
+ * Client responsibilities:
+ * - Validate selection + sourceRoot + target root availability
+ * - Build the server payload
+ * - Call import API
+ * - After successful import: delete source session (POST /api/delete-session)
+ * - On success: remove imported originals from scanItems, then re-group + re-render
+ * - Keep UI responsive and logging consistent
+ *
+ * Server contracts:
+ *   POST /api/import
+ *   Body: { sessionTitle, sourceRoot, sessionNote, sessionKeywords, sessionStart, sessionEnd, files }
+ *
+ *   POST /api/delete-session
+ *   Body: { sourceRoot, files }
+ */
 async function importSelectedSession() {
+  // 1) Guards: need a selected session with items
   const s = getSelectedSession();
   if (!s) return setLog("Import aborted: No session selected.");
-  if (!Array.isArray(s.items) || s.items.length === 0) return setLog("Import aborted: Session has no items.");
 
-  const root = getEffectiveTargetRoot();
-  if (!root) return setLog("Import aborted: No target root configured.");
+  const files = Array.isArray(s.items) ? s.items.slice() : [];
+  if (!files.length) return setLog("Import aborted: Session has no items.");
 
+  // 2) Guard: importing requires a configured target root
+  const targetRoot = getEffectiveTargetRoot();
+  if (!targetRoot) return setLog("Import aborted: No target root configured.");
+
+  // 3) Guard: server-side safety boundary for delete step requires sourceRoot
+  const sourceRoot = String(state.sourceRoot || "").trim();
+  if (!sourceRoot) {
+    return setLog("Import aborted: sourceRoot missing. Select a source folder first.");
+  }
+
+  // 4) Read user inputs (server sanitizes where needed)
   const sessionTitle = String(els.title?.value ?? "").trim();
   const sessionNote = String(els.sessionNote?.value ?? "").trim();
   const sessionKeywords = String(els.sessionKeywords?.value ?? "").trim();
 
+  // 5) Payload: stable contract to server
   const payload = {
     sessionTitle,
+    sourceRoot,
     sessionNote,
     sessionKeywords,
     sessionStart: s.start,
     sessionEnd: s.end,
-    files: s.items,
+    files,
   };
 
-  logLine("[import] payload", payload);
+  // Preserve UI context before any mutations (regrouping can reindex sessions)
+  const preserveSessionId = s.id ?? null;
+  const preservePath = state.currentFilePath ?? null;
 
+  // 6) Lock UI actions while import + delete-after-export are in-flight
   setBusy({ importing: true });
 
   logLine("[import] POST /api/import", {
@@ -634,43 +659,86 @@ async function importSelectedSession() {
     keywords: sessionKeywords
       ? sessionKeywords.split(",").map((x) => x.trim()).filter(Boolean).length
       : 0,
-    count: s.count ?? s.items.length,
+    count: s.count ?? files.length,
   });
 
   try {
-    const out = await fetchJson("/api/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+    // 7) Import
+    const out = await apiImport(payload, { logLine });
+    logLine("[import] ok", out);
+
+    // 8) Delete-after-export (required by your workflow)
+    //
+    // IMPORTANT: do this before mutating scanItems so the UI reflects reality on disk.
+    logLine("[delete-after-export] POST /api/delete-session", {
+      sourceRoot,
+      files: files.length,
     });
 
-    const importedSet = new Set(s.items);
+    const delRes = await fetch("/api/delete-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceRoot, files }),
+    });
+
+    const delData = await delRes.json().catch(() => ({}));
+    if (!delRes.ok) {
+      setLog({
+        error: "Import OK, but delete-after-export failed",
+        import: {
+          sessionDir: out.sessionDir,
+          copied: out.copied,
+          skipped: out.skipped,
+        },
+        delete: { status: delRes.status, data: delData },
+      });
+      logLine("[delete-after-export] failed", { status: delRes.status, data: delData });
+      return;
+    }
+
+    logLine("[delete-after-export] ok", delData);
+
+    // 9) Now that disk is updated, update UI state:
+    // scanItems contains ONLY originals (not companions), so remove by session originals list.
+    const importedSet = new Set(files);
     state.scanItems = normalizeAndSortItems(
       state.scanItems.filter((it) => !importedSet.has(it.path))
     );
 
-    applyScanItemsToUi();
+    // Re-group and re-render, keeping selection stable if possible
+    applyScanItemsToUi({ preserveSessionId, preservePath });
+
+    // 10) Human readable result (include delete counts if available)
+    const primaryDeleted =
+      delData.primaryDeleted ??
+      delData.originalsDeleted ??
+      delData.primaryCount ??
+      "?";
+
+    const deletedTotal =
+      delData.deleted ??
+      delData.targetCount ??
+      "?";
 
     setLog(
-      `Import OK\n` +
-      `targetRoot: ${out.targetRoot || root}\n` +
+      `Import OK + Source deleted\n` +
+      `targetRoot: ${out.targetRoot || targetRoot}\n` +
       `sessionDir: ${out.sessionDir || "(unknown)"}\n` +
       `exportsDir: ${out.exportsDir || "(unknown)"}\n` +
       `exportSessionDir: ${out.exportSessionDir || "(missing)"}\n` +
       `sessionJson: ${out.sessionJsonFile || "(n/a)"}\n` +
       `logFile: ${out.logFile || "(unknown)"}\n` +
-      `copied: ${out.copied ?? "?"}, skipped: ${out.skipped ?? "?"}`
+      `copied: ${out.copied ?? "?"}, skipped: ${out.skipped ?? "?"}\n` +
+      `deleted (source): ${primaryDeleted}/${deletedTotal}\n`
     );
-
-    logLine("[import] ok", out);
   } catch (e) {
     setLog({ error: "Import failed", details: e });
     logLine("[import] failed", e);
   } finally {
+    // 11) Always restore UI gating + refresh header
     setBusy({ importing: false });
     uiRenderHeader();
     uiUpdateImportEnabled();
-    //uiRenderImportButton();
   }
 }
 
@@ -682,61 +750,59 @@ async function importSelectedSession() {
  * POST /api/delete
  * Body: { file: <absolutePath>, sourceRoot: <absolutePath> }
  * Response: { ok, sourceRoot, trashedTo, moved:[{from,to}], skipped:[], errors:[] }
+ *
+ * Client responsibilities:
+ * - Validate required UI state (session + selected file + sourceRoot)
+ * - Confirm destructive action
+ * - Call API via apiDeleteFile()
+ * - On success: remove ONLY the original from scanItems (companions are not in scanItems)
+ * - Re-group sessions and keep selection stable
  */
 async function deleteCurrentImage() {
-  // 1) Guard: must have an active session (keeps UI state predictable)
+  // 1) Guard: keep UI predictable by requiring a selected session
   const s = getSelectedSession();
   if (!s) return setLog("Delete aborted: No session selected.");
 
-  // 2) Guard: must have a selected image
-  const deletingPath = state.currentFilePath;
+  // 2) Guard: must have a selected image (thumbnail click sets this)
+  const deletingPath = String(state.currentFilePath || "").trim();
   if (!deletingPath) {
     return setLog("Delete aborted: No image selected. Click a thumbnail first.");
   }
 
-  // 3) Guard: server requires sourceRoot to enforce safety boundaries
+  // 3) Guard: server enforces safety boundaries via sourceRoot
   const sourceRoot = String(state.sourceRoot || "").trim();
   if (!sourceRoot) {
     return setLog("Delete aborted: sourceRoot missing. Select a source folder first.");
   }
 
-  // 4) Confirm user intent
+  // 4) Confirm destructive action
   const name = deletingPath.split("/").pop() || deletingPath;
   if (!confirm(`Delete (move to trash): ${name}?`)) return;
 
-  // 5) Disable conflicting actions while the delete is in-flight
+  // Preserve context before mutations (re-grouping can reindex)
+  const preserveSessionId = s.id ?? null;
+  const preservePath = deletingPath;
+
+  // 5) Disable conflicting actions while delete is in-flight
   setBusy({ deleting: true });
 
   try {
-    // 6) Call delete endpoint
-    const res = await fetch("/api/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        file: deletingPath,
-        sourceRoot, // REQUIRED: server validates the file is inside this root
-      }),
-    });
+    // 6) Call delete endpoint (API helper throws on non-2xx)
+    const data = await apiDeleteFile(
+      { file: deletingPath, sourceRoot },
+      { logLine }
+    );
 
-    const data = await res.json().catch(() => ({}));
-
-    // 7) Error path: do not mutate UI state; user can retry
-    if (!res.ok) {
-      setLog({ error: "Delete failed", status: res.status, data });
-      logLine("[delete] failed", { status: res.status, data });
-      return;
-    }
-
-    // 8) Success: remove the deleted ORIGINAL from scanItems (companions are not in scanItems)
-    const preserveSessionId = s.id ?? null;
+    // 7) Success: remove the deleted ORIGINAL from scanItems
+    // Companions are not in scanItems, so we remove by exact original path.
     state.scanItems = normalizeAndSortItems(
       state.scanItems.filter((it) => it.path !== deletingPath)
     );
 
-    // 9) Rebuild sessions & keep selection stable
-    applyScanItemsToUi({ preserveSessionId, preservePath: deletingPath });
+    // 8) Rebuild sessions and keep selection stable if possible
+    applyScanItemsToUi({ preserveSessionId, preservePath });
 
-    // 10) Choose a reasonable next preview image
+    // 9) Choose a reasonable next preview image (first item in current session)
     const s2 = getSelectedSession();
     if (s2?.items?.length) {
       uiSetCurrentImage(s2.items[0]);
@@ -745,32 +811,34 @@ async function deleteCurrentImage() {
       clearEl(els.thumbStrip);
     }
 
-    // 11) UX message: server now returns `trashedTo` and `moved[]` (legacy was `movedTo`)
+    // 10) UX message: support legacy + current server fields
     const movedTo =
       data?.movedTo ||          // legacy
       data?.trashedTo ||        // current preferred
-      data?.moved?.[0]?.to ||   // fallback to first moved file destination
+      data?.moved?.[0]?.to ||   // fallback
       "(unknown)";
+
+    const movedCount = Array.isArray(data?.moved) ? data.moved.length : 0;
+    const missing = Number.isFinite(data?.missing) ? data.missing : 0;
 
     setLog(
       `Deleted: ${name}\n` +
       `Moved to: ${movedTo}\n` +
-      `Files moved: ${Array.isArray(data?.moved) ? data.moved.length : 0}\n` +
-      `Missing: ${data?.missing ?? 0}`
+      `Files moved: ${movedCount}\n` +
+      `Missing: ${missing}`
     );
 
     logLine("[delete] ok", data);
   } catch (err) {
-    // 12) Exception path: network/server crash/etc.
-    setLog({ error: "Delete exception", err: String(err) });
-    logLine("[delete] exception", err);
+    // apiDeleteFile() should throw a structured object (status/data), but be tolerant.
+    setLog({ error: "Delete failed", details: err });
+    logLine("[delete] failed", err);
   } finally {
-    // 13) Always restore UI gating
+    // 11) Always restore UI gating + refresh header
     setBusy({ deleting: false });
     uiRenderHeader();
   }
 }
-
 /* ======================================================
    13) TIMERS / POLLING
 ====================================================== */
@@ -780,7 +848,7 @@ function startProgressPolling() {
 
   state.progressTimer = setInterval(async () => {
     try {
-      const p = await fetchJson("/api/scan/progress", { cache: "no-store" });
+      const p = await apiScanProgress({ logLine });
 
       if (!p || !p.total || p.total <= 0) {
         els.progressBar?.removeAttribute("value");
@@ -901,19 +969,12 @@ function renderSourcePicker({ path: cwd, parent, directories } = {}) {
 
 async function openSourceFolderBrowser(startPath = "/") {
   try {
-    const p = String(startPath || "/");
-    const url = `/api/fs/browse?path=${encodeURIComponent(p)}`;
-
-    logLine("[fsbrowse] GET", url);
-    const data = await fetchJson(url, { method: "GET", cache: "no-store" });
-
-    // server returns: { path, parent, directories }
+    const data = await apiBrowseFs(startPath, { logLine });
     renderSourcePicker({
       path: data.path,
       parent: data.parent,
       directories: data.directories,
     });
-
     showSourcePickerModal();
   } catch (e) {
     setLog({ error: "Source folder browse failed", details: e });
@@ -921,29 +982,67 @@ async function openSourceFolderBrowser(startPath = "/") {
   }
 }
 
-async function deleteCurrentSession() {
-  const s = getSelectedSession();
-  if (!s) return setLog("Delete session aborted: No session selected.");
+/**
+ * Delete the currently selected session from the SOURCE (and all companion files)
+ * by calling the server endpoint:
+ *
+ *   POST /api/delete-session
+ *   Body: { sourceRoot: string, files: string[] }
+ *
+ * ??? Key behaviors:
+ * - Guards against missing selection / missing sourceRoot.
+ * - Confirms with the user (destructive action).
+ * - Preserves selection context (session id + current image) so the UI remains stable
+ *   after we remove items and re-group sessions.
+ * - Handles multiple server response shapes (older/newer versions).
+ * - Updates scanItems -> re-groups -> refreshes preview.
+ */
 
-  const sourceRoot = String(state.sourceRoot || "").trim();
+
+/**
+ * Delete a session from SOURCE (originals + companions) via:
+ *   POST /api/delete-session
+ *
+ * By default it uses the currently selected session and asks for confirmation.
+ * Import flow can call it with { skipConfirm:true, filesOverride:[...], preserveSessionId, preservePath }.
+ */
+async function deleteCurrentSession(opts = {}) {
+  const {
+    skipConfirm = false,
+    filesOverride = null,
+    preserveSessionId = null,
+    preservePath = null,
+    sourceRootOverride = null,
+  } = opts;
+
+  // 1) Determine what we delete
+  const s = getSelectedSession();
+  const files = Array.isArray(filesOverride)
+    ? filesOverride
+    : (Array.isArray(s?.items) ? s.items : []);
+
+  if (!files.length) return setLog("Delete session aborted: Session has no files.");
+
+  // 2) Safety boundary required by server
+  const sourceRoot = String(sourceRootOverride ?? state.sourceRoot ?? "").trim();
   if (!sourceRoot) {
     return setLog("Delete session aborted: sourceRoot missing. Select a source folder first.");
   }
 
-  const files = Array.isArray(s.items) ? s.items : [];
-  if (!files.length) return setLog("Delete session aborted: Session has no files.");
+  // 3) Confirm destructive action (unless import calls skipConfirm)
+  if (!skipConfirm) {
+    const msg =
+      `Delete entire session?\n\n` +
+      `Files: ${files.length}\n` +
+      (s ? `Range: ${fmtRange(s.start, s.end)}\n\n` : "\n") +
+      `This will also delete companion files (.xmp, .on1, .onphoto, etc.).`;
 
-  const msg =
-    `Delete entire session?\n\n` +
-    `Files: ${files.length}\n` +
-    `Range: ${fmtRange(s.start, s.end)}\n\n` +
-    `This will also delete companion files (.xmp, .on1, .onphoto, etc.).`;
+    if (!confirm(msg)) return;
+  }
 
-  if (!confirm(msg)) return;
-
-  // Preserve current selection if possible (before we mutate state)
-  const preserveSessionId = s.id ?? null;
-  const preservePath = state.currentFilePath ?? null;
+  // 4) Preserve UI context before mutation
+  const keepSessionId = preserveSessionId ?? (s?.id ?? null);
+  const keepPath = preservePath ?? (state.currentFilePath ?? null);
 
   setBusy({ deleting: true });
 
@@ -955,66 +1054,45 @@ async function deleteCurrentSession() {
     });
 
     const data = await res.json().catch(() => ({}));
-
     if (!res.ok) {
       setLog({ error: "Delete session failed", status: res.status, data });
       logLine("[delete-session] failed", { status: res.status, data });
-      return;
+      return null;
     }
 
-    // Server may return different field shapes depending on version:
-    // - Old: originalsDeleted, companionsDeleted, missing
-    // - New: primaryCount, targetCount, deleted, missing
-    const originalsDeleted =
-      data.originalsDeleted ??
-      data.primaryDeleted ??
-      data.primaryCount ??
-      "?";
-
-    const companionsDeleted =
-      data.companionsDeleted ??
-      (Number.isFinite(data.targetCount) && Number.isFinite(data.primaryCount)
-        ? Math.max(0, data.targetCount - data.primaryCount)
-        : (Number.isFinite(data.deleted) && Number.isFinite(data.primaryCount)
-          ? Math.max(0, data.deleted - data.primaryCount)
-          : "?"));
-
-    const deletedTotal =
-      data.deleted ??
-      (Number.isFinite(originalsDeleted) && Number.isFinite(companionsDeleted)
-        ? originalsDeleted + companionsDeleted
-        : "?");
-
-    const missing = data.missing ?? 0;
-    const targetCount =
-      data.targetCount ??
-      (Number.isFinite(deletedTotal) && Number.isFinite(missing)
-        ? deletedTotal + missing
-        : "?");
-
-    // Remove deleted originals from scanItems and refresh UI
+    // Remove deleted originals from scanItems (companions are not in scanItems)
     const deletedSet = new Set(files);
-    state.scanItems = normalizeAndSortItems(state.scanItems.filter((it) => !deletedSet.has(it.path)));
+    state.scanItems = normalizeAndSortItems(
+      state.scanItems.filter((it) => !deletedSet.has(it.path))
+    );
 
-    // Keep selection stable if possible after re-grouping
-    applyScanItemsToUi({ preserveSessionId, preservePath });
+    applyScanItemsToUi({ preserveSessionId: keepSessionId, preservePath: keepPath });
 
-    // Reset preview/strip (session might be gone now)
     uiSetCurrentImage(null);
     clearEl(els.thumbStrip);
 
+    // Best-effort summary across server versions
+    const missing = data.missing ?? 0;
+    const primary = data.originalsDeleted ?? data.primaryCount ?? "?";
+    const total = data.deleted ?? data.targetCount ?? "?";
+    const companions =
+      data.companionsDeleted ??
+      (Number.isFinite(total) && Number.isFinite(primary) ? Math.max(0, total - primary) : "?");
+
     setLog(
       `Session deleted\n` +
-        `primary (originals): ${originalsDeleted}\n` +
-        `companions: ${companionsDeleted}\n` +
-        `deleted total: ${deletedTotal}/${targetCount}\n` +
-        `missing: ${missing}\n`
+      `primary (originals): ${primary}\n` +
+      `companions: ${companions}\n` +
+      `deleted total: ${total}\n` +
+      `missing: ${missing}\n`
     );
 
     logLine("[delete-session] ok", data);
+    return data;
   } catch (err) {
     setLog({ error: "Delete session exception", err: String(err) });
     logLine("[delete-session] exception", err);
+    return null;
   } finally {
     setBusy({ deleting: false });
     uiRenderHeader();
@@ -1030,7 +1108,6 @@ on(els.selSrcBtn, "click", () => {
   openSourceFolderBrowser(start);
 });
 
-//on(els.scanBtn, "click", runScan);
 on(els.importBtn, "click", importSelectedSession);
 on(els.deleteBtn, "click", deleteCurrentImage);
 

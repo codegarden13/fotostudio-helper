@@ -6,7 +6,8 @@
 //
 // Notes:
 // - Directory traversal belongs in fsutil.walk()
-// - Skip policies (.studio-helper-trash etc.) belong in fsutil.shouldSkipDirentName()
+
+
 // - This module is strictly "timestamp extraction"
 
 import fsp from "fs/promises";

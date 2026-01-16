@@ -1,18 +1,27 @@
 // routes/delete.js
 //
-// - POST /api/delete
-// - Moves {file + companions} to ".studio-helper-trash/<timestamp>/"
-// - Enforces: everything must be inside sourceRoot
+// POST /api/delete
+// Body: { file: string, sourceRoot: string }
+//
+// Moves {file + companions} to a CENTRAL trash folder under sourceRoot:
+//
+//   <sourceRoot>/.studio-helper-trash/<timestamp>/<relative-path-under-sourceRoot>
+//
+// Guarantees:
+// - Everything must be inside sourceRoot
+// - Trash is always central (never per-subfolder)
+// - Relative paths are preserved to avoid collisions
+// - Rename stays atomic (same volume)
 
+import fs from "fs";
 import path from "path";
 import fsp from "fs/promises";
-import fs from "fs";
 
 import { findCompanionsForImage } from "../lib/companions.js";
 
-/* ---------------------------
+/* ======================================================
    Error helpers
----------------------------- */
+====================================================== */
 
 function httpError(status, message, code) {
   const err = new Error(message);
@@ -35,9 +44,9 @@ function sendDeleteError(res, err) {
   });
 }
 
-/* ---------------------------
-   Path safety
----------------------------- */
+/* ======================================================
+   Path safety + utilities
+====================================================== */
 
 function normalizeAbs(p) {
   const s = String(p || "").trim();
@@ -51,25 +60,6 @@ function isPathInside(childAbs, parentAbs) {
   return rel && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
-function trashRootForFile(fileAbs) {
-  // keep trash on same volume -> rename stays atomic
-  return path.join(path.dirname(fileAbs), ".studio-helper-trash");
-}
-
-async function moveToTrash(fileAbs, { trashDir } = {}) {
-  const base = path.basename(fileAbs);
-  let dst = path.join(trashDir, base);
-
-  if (fs.existsSync(dst)) {
-    const ext = path.extname(base);
-    const name = path.basename(base, ext);
-    dst = path.join(trashDir, `${name}-${Date.now()}${ext}`);
-  }
-
-  await fsp.rename(fileAbs, dst);
-  return dst;
-}
-
 async function statIsFile(p) {
   try {
     const st = await fsp.stat(p);
@@ -79,54 +69,110 @@ async function statIsFile(p) {
   }
 }
 
-/* ---------------------------
+function isoStamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+/**
+ * Central trash directory for this delete request.
+ * Kept under sourceRoot so rename() stays atomic.
+ */
+function makeTrashDir(sourceRootAbs) {
+  return path.join(sourceRootAbs, ".studio-helper-trash", isoStamp());
+}
+
+/**
+ * Move a file into trash, preserving its relative path under sourceRoot.
+ *
+ * Example:
+ *   sourceRootAbs = /Volumes/DISK/INPUT
+ *   fileAbs       = /Volumes/DISK/INPUT/2025-06-03/A/DSC1.ARW
+ *   =>
+ *   trash/.../2025-06-03/A/DSC1.ARW
+ */
+async function moveToTrashPreserveRel(fileAbs, { sourceRootAbs, trashDirAbs }) {
+  const rel = path.relative(sourceRootAbs, fileAbs);
+
+  // Safety: must still be inside sourceRoot
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw httpError(403, "Refusing to trash outside sourceRoot", "OUTSIDE_ROOT");
+  }
+
+  let dst = path.join(trashDirAbs, rel);
+  await fsp.mkdir(path.dirname(dst), { recursive: true });
+
+  // Collision handling (rare but possible)
+  if (fs.existsSync(dst)) {
+    const ext = path.extname(dst);
+    const base = ext ? dst.slice(0, -ext.length) : dst;
+    dst = ext
+      ? `${base}-${Date.now()}${ext}`
+      : `${base}-${Date.now()}`;
+  }
+
+  await fsp.rename(fileAbs, dst);
+  return dst;
+}
+
+/* ======================================================
    Route registration
----------------------------- */
+====================================================== */
 
 export function registerDeleteRoutes(app) {
   app.post("/api/delete", async (req, res) => {
     try {
-      const file = req.body?.file;
-      const sourceRoot = req.body?.sourceRoot;
+      // 1) Validate input
+      const absFile = normalizeAbs(req.body?.file);
+      const absRoot = normalizeAbs(req.body?.sourceRoot);
 
-      if (!file) throw httpError(400, "file missing", "MISSING_FILE");
-      if (!sourceRoot) throw httpError(400, "sourceRoot missing", "MISSING_SOURCE_ROOT");
+      if (!absFile) throw httpError(400, "file missing", "MISSING_FILE");
+      if (!absRoot) throw httpError(400, "sourceRoot missing", "MISSING_SOURCE_ROOT");
 
-      const absFile = normalizeAbs(file);
-      const absRoot = normalizeAbs(sourceRoot);
-
-      // Safety: only inside selected source root
-      if (!isPathInside(absFile, absRoot) && absFile !== absRoot) {
-        throw httpError(403, `Refusing to delete outside allowed root: ${absRoot}`, "OUTSIDE_ROOT");
+      if (!isPathInside(absFile, absRoot)) {
+        throw httpError(
+          403,
+          `Refusing to delete outside allowed root: ${absRoot}`,
+          "OUTSIDE_ROOT"
+        );
       }
 
-      // Main file must exist and be a file
-      if (!(await statIsFile(absFile))) throw httpError(404, "File not found", "NOT_FOUND");
+      if (!(await statIsFile(absFile))) {
+        throw httpError(404, "File not found", "NOT_FOUND");
+      }
 
-      // Discover companions (best-effort)
-      const companions = await findCompanionsForImage(absFile, { includeJpegForRaw: true });
+      // 2) Discover companions (best-effort)
+      const companions = await findCompanionsForImage(absFile, {
+        includeJpegForRaw: true,
+      });
 
-      // Build delete set: main file + companions that are also inside root + are files
-      const candidates = [absFile, ...companions]
-        .map(normalizeAbs)
-        .filter((p) => (isPathInside(p, absRoot) || p === absRoot)); // safety for each
+      // Primary + companions, normalized & safety-filtered
+      const targets = new Set(
+        [absFile, ...companions]
+          .map(normalizeAbs)
+          .filter((p) => p && isPathInside(p, absRoot))
+      );
 
-      // Create one trash dir for this delete action (keeps files together)
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const trashDir = path.join(trashRootForFile(absFile), stamp);
+      // 3) One trash dir per request
+      const trashDir = makeTrashDir(absRoot);
       await fsp.mkdir(trashDir, { recursive: true });
 
       const moved = [];
       const skipped = [];
       const errors = [];
 
-      for (const p of candidates) {
+      // 4) Move files
+      for (const p of targets) {
         try {
           if (!(await statIsFile(p))) {
             skipped.push({ path: p, reason: "not-a-file-or-missing" });
             continue;
           }
-          const dst = await moveToTrash(p, { trashDir });
+
+          const dst = await moveToTrashPreserveRel(p, {
+            sourceRootAbs: absRoot,
+            trashDirAbs: trashDir,
+          });
+
           moved.push({ from: p, to: dst });
         } catch (e) {
           errors.push({ path: p, error: String(e?.message || e) });
@@ -137,6 +183,7 @@ export function registerDeleteRoutes(app) {
         ok: true,
         sourceRoot: absRoot,
         trashedTo: trashDir,
+        movedCount: moved.length,
         moved,
         skipped,
         errors,

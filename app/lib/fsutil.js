@@ -1,32 +1,36 @@
 // lib/fsutil.js
-//
-// Responsibilities:
-// - Small filesystem helpers (pure-ish, reusable)
-// - Naming normalization (safeName)
-// - Preview cache path computation
-// - Generic directory traversal (walk)
-//
-// Notes:
-// - Keep app-specific policy out of walk() as much as possible.
-// - For app-wide skip rules, use shouldSkipDirentName() + opts.skipDirNames.
 
-import path from "path";
 import fs from "fs";
+import path from "path";
 import fsp from "fs/promises";
 import crypto from "crypto";
 import { CONFIG } from "../config.js";
 
-
 /* ======================================================
-   Small helpers
+   Small path helpers
 ====================================================== */
 
+/**
+ * Return the lower-case extension for a path.
+ * Example: "/a/b/DSC01234.ARW" -> ".arw"
+ */
 export function extOf(p) {
   return path.extname(String(p ?? "")).toLowerCase();
 }
 
 /**
- * Existence check (doesn't distinguish between permission denied vs missing).
+ * Replace problematic filename characters and trim.
+ * Used for folder/session naming (import).
+ */
+export function safeName(name) {
+  return String(name ?? "Untitled")
+    .replace(/[<>:"/\\|?*\n\r\t]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Best-effort exists check.
  */
 export async function exists(p) {
   try {
@@ -37,65 +41,69 @@ export async function exists(p) {
   }
 }
 
-export async function ensureDir(dirPath) {
-  const p = String(dirPath ?? "").trim();
-  if (!p) throw new Error("ensureDir(): dirPath is empty");
-  await fsp.mkdir(p, { recursive: true });
-}
+/* ======================================================
+   Cache helpers
+====================================================== */
 
 /**
- * Produce a filesystem-friendly name.
- * - removes illegal path characters
- * - collapses whitespace
- * - trims trailing dots/spaces (macOS Finder-like)
+ * Compute deterministic cache path for a preview file.
+ * Required by lib/preview.js.
  */
-export function safeName(name, { fallback = "Untitled", maxLen = 120 } = {}) {
-  const s = String(name ?? "").trim();
-  const base = s || fallback;
-
-  const out = base
-    .replace(/[<>:"/\\|?*\n\r\t]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[.\s]+$/g, "") // avoid trailing dots/spaces
-    .slice(0, maxLen);
-
-  return out || fallback;
-}
-
 export function previewCachePath(srcPath) {
-  const key = crypto.createHash("sha1").update(String(srcPath ?? "")).digest("hex");
+  const key = crypto
+    .createHash("sha1")
+    .update(String(srcPath ?? ""))
+    .digest("hex");
   return path.join(CONFIG.previewCacheDir, `${key}.jpg`);
 }
 
 /* ======================================================
-   Traversal defaults
+   Directory filtering
 ====================================================== */
 
 /**
- * Global noise filter used by walk() and other directory listings.
- * Keep this conservative: only skip things you never want to see/scan.
+ * Canonical global noise filter used by walk() and directory listings.
+ *
+ * Policy:
+ * - Skip hidden files/dirs (dot-prefixed)
+ * - Skip known system junk
+ * - Skip the app trash folder everywhere
  */
 export function shouldSkipDirentName(name) {
-  const n = String(name ?? "");
-  if (!n) return true;
+  const n = String(name ?? "").trim();
+ if (!n) return true;
 
-  // Always skip dotfiles/dirs and macOS metadata
+  // Hidden (Finder-like). This includes .DS_Store, .AppleDouble, etc.
   if (n.startsWith(".")) return true;
-  if (n === ".DS_Store") return true;
-  if (n === ".AppleDouble") return true;
-  if (n === "._.DS_Store") return true;
 
-  // Your app trash folder (critical: prevents re-scanning trashed items)
-  if (n === ".studio-helper-trash") return true;
-
-  // Common junk
+  // Common junk folder
   if (n === "__MACOSX") return true;
+
+  // Windows volume noise
+  if (n === "System Volume Information") return true;
+
+  // App trash (redundant because dot, but explicit for clarity)
+  if (n === ".studio-helper-trash") return true;
 
   return false;
 }
 
-//import { extOf, shouldSkipDirentName } from "./fsutil.js";
+/* ======================================================
+   FS primitives
+====================================================== */
+
+/**
+ * Ensure a directory exists (mkdir -p).
+ */
+export async function ensureDir(dirPath) {
+  const p = String(dirPath ?? "").trim();
+  if (!p) {
+    const e = new Error("ensureDir(): dirPath is empty");
+    e.code = "BAD_ARGS";
+    throw e;
+  }
+  await fsp.mkdir(p, { recursive: true });
+}
 
 /* ======================================================
    Walk
@@ -108,7 +116,7 @@ export function shouldSkipDirentName(name) {
  * - Root must exist, be a directory, and be readable (otherwise throws)
  * - Unreadable subdirectories are skipped (scan continues)
  * - Hidden files / system noise / app trash are ALWAYS skipped
- * - `.studio-helper-trash` is never entered or scanned
+ * - `.studio-helper-trash` is never entered or scanned (at any depth)
  *
  * @param {string} rootDir
  * @param {Set<string>} allowedExts - lower-case extensions, e.g. new Set([".arw", ".jpg"])
@@ -128,7 +136,7 @@ export async function walk(rootDir, allowedExts) {
     throw e;
   }
 
-  // Root must exist + be directory
+  // Root must exist + be a directory
   let st;
   try {
     st = await fsp.stat(root);
@@ -165,14 +173,14 @@ export async function walk(rootDir, allowedExts) {
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch {
-      // unreadable subdirectory → skip silently
+      // unreadable subdirectory -> skip silently
       continue;
     }
 
     for (const entry of entries) {
       const name = entry.name;
 
-      // ONE canonical skip rule (includes .studio-helper-trash)
+      // Canonical skip rule (covers .studio-helper-trash everywhere)
       if (shouldSkipDirentName(name)) continue;
 
       const fullPath = path.join(dir, name);
@@ -185,9 +193,7 @@ export async function walk(rootDir, allowedExts) {
       if (!entry.isFile()) continue;
 
       const ext = extOf(fullPath);
-      if (allowedExts.has(ext)) {
-        results.push(fullPath);
-      }
+      if (allowedExts.has(ext)) results.push(fullPath);
     }
   }
 
