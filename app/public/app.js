@@ -249,21 +249,6 @@ function uiRenderTarget() {
   uiUpdateImportEnabled();
 }
 
-/*
-function uiRenderImportButton() {
-  if (!els.importBtn) return;
-
-  const root = getEffectiveTargetRoot();
-  if (!root) {
-    els.importBtn.textContent = "Importieren";
-    return;
-  }
-
-  const short = root.split("/").filter(Boolean).slice(-1)[0] || root;
-  els.importBtn.textContent = `Nach ${short} importieren`;
-}
-
-*/
 
 function hasSelectedSession() {
   if (!els.sessions) return false;
@@ -293,7 +278,7 @@ function setBusy({ scanning = false, importing = false, deleting = false } = {})
   if (els.deleteBtn) els.deleteBtn.disabled = !!deleting;
 
   uiUpdateImportEnabled();
-  //uiRenderImportButton();
+
 }
 
 /* ======================================================
@@ -498,6 +483,59 @@ function ensureSelection({ preferSessionId = null, fallbackPath = null } = {}) {
   els.sessions.selectedIndex = idx;
 }
 
+
+
+// Throttle state for slider-driven regrouping
+let _regroupRaf = null;
+let _regroupPending = false;
+
+/**
+ * Lightweight regroup trigger for slider "input" events.
+ *
+ * - Throttled via requestAnimationFrame (max ~60fps)
+ * - Updates gap label + session grouping
+ * - Avoids expensive preview/thumb rebuilds
+ */
+function requestRegroupLight() {
+  if (_regroupPending) return;
+  _regroupPending = true;
+
+  _regroupRaf = requestAnimationFrame(() => {
+    _regroupPending = false;
+    regroupSessionsAndRerender({ mode: "light" });
+  });
+}
+
+function regroupSessionsAndRerender(
+  { preserveSessionId = null, preservePath = null, mode = "full" } = {}
+) {
+  if (!state.scanItems.length) {
+    clearEl(els.sessions);
+    clearEl(els.thumbStrip);
+    uiSetCurrentImage(null);
+    uiRenderSessionMeta(null);
+    uiRenderHeaderMeta(null);
+    uiUpdateImportEnabled();
+    return;
+  }
+
+  gapSyncFromSlider();
+
+  // FAST: pure computation
+  state.sessions = groupSessionsClient(state.scanItems, state.gapMs);
+
+  if (mode === "light") {
+    uiRenderSessionsLight(state.sessions);
+    uiRenderHeader(); // updates gap label etc.
+    return;
+  }
+
+  // FULL render (only on slider "change" or real session change)
+  uiRenderSessions(state.sessions);
+  ensureSelection({ preferSessionId, fallbackPath: preservePath });
+  onSessionChange();
+}
+
 /* ======================================================
    12) FLOWS (config, scan, import, delete)
 ====================================================== */
@@ -520,24 +558,7 @@ function onSessionChange() {
   uiUpdateImportEnabled();
 }
 
-function regroupSessionsAndRerender({ preserveSessionId = null, preservePath = null } = {}) {
-  if (!state.scanItems.length) {
-    clearEl(els.sessions);
-    clearEl(els.thumbStrip);
-    uiSetCurrentImage(null);
-    uiRenderSessionMeta(null);
-    uiRenderHeaderMeta(null);
-    uiUpdateImportEnabled();
-    return;
-  }
 
-  gapSyncFromSlider();
-  state.sessions = groupSessionsClient(state.scanItems, state.gapMs);
-
-  uiRenderSessions(state.sessions);
-  ensureSelection({ preferSessionId: preserveSessionId, fallbackPath: preservePath });
-  onSessionChange();
-}
 
 function applyScanItemsToUi({ preserveSessionId = null, preservePath = null } = {}) {
   const presets = computeGapPresetsFromItems(state.scanItems);
@@ -1114,7 +1135,8 @@ on(els.deleteBtn, "click", deleteCurrentImage);
 on(els.delSessionBtn, "click", deleteCurrentSession);
 
 on(els.sessions, "change", onSessionChange);
-on(els.gapSlider, "input", () => regroupSessionsAndRerender());
+on(els.gapSlider, "input", requestRegroupLight);
+on(els.gapSlider, "change", () => regroupSessionsAndRerender());
 
 on(els.title, "input", () => {
   state.userTouchedTitle = true;
