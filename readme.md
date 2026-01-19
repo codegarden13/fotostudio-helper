@@ -1,10 +1,8 @@
 # Fotosession - basierter Bildarchiv - Workflow
 
-*Photosessions zukunftssicher speichern und zur Weiterverarbeitung vorbereiten.*
+Up-to-Date. *Photosessions Zukunftssicher speichern und für nachgelagerte Prozesse. vorbereiten.*
 
-**fotostudio-helper** ist ein zukunftssicheres Bildarchiv als Basis für weitere Prozesse. Die App skaliert auf >10000 Sessions monatlich, ist schnell, praxisbezogener als mir bekannte Systeme, welche oft Ordnerstrukturen wie YYYY//MM/DD nutzen. 
-
-"Legacy" - Archive (z.b. Lightroom/ON1, etc.. sind kompatibel und können die Session-Struktur nutzen.
+Er skaliert auf >10000 Sessions monatlich, ist schnell, praxisbezogener als mir bekannte Systeme, welche oft Ordnerstrukturen wie YYYY//MM/DD nutzen."Legacy" - Archive (z.b. Lightroom/ON1, etc.. sind aber kompatibel und können die erzeugte Session-Struktur in den erzeugten Export-Ordnern nutzen.
 
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
