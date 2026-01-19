@@ -1,25 +1,30 @@
-# fotostudio-helper [2.0.0]
-Fotosession - basierte  Bildverwaltung, effizienter  - Import-Workflow für Bilder. Gerichtet an:
+# Fotosession - basierter Bildarchiv - Workflow
 
-- 😎 Fotografen, große und kleine Studios
-- Agenturen und Broadcast-Produktionen
+*Photosessions zukunftssicher speichern und zur Weiterverarbeitung vorbereiten.*
+
+**fotostudio-helper** ist ein zukunftssicheres Bildarchiv als Basis für weitere Prozesse. Die App skaliert auf >10000 Sessions monatlich, ist schnell, praxisbezogener als mir bekannte Systeme, welche oft Ordnerstrukturen wie YYYY//MM/DD nutzen. 
+
+"Legacy" - Archive (z.b. Lightroom/ON1, etc.. sind kompatibel und können die Session-Struktur nutzen.
 
 <p align="center">
   <img src="./assets/logo.png" alt="Illustration fotostudio-helper" width="100%">
 </p>
 
-<p align="center"><em>No matter how you switch photo devices: your work is captured. Safe.</em></p>
+- No matter how you switch photo devices: your work is captured. Safe.
+- Industriestandard. Nichts wird gelöscht, nichts wird überschreiben. 
+- Ergebnis: Single Source of Truth - Dein Langzeitarchiv.
 
-Industriestandard. Nichts wird gelöscht, nichts wird überschreiben. Ergebnis: Single Source of Truth - Dein Langzeitarchiv.
+## Zielgruppe:
 
-## Anwendung, Usecases
+- 😎 Fotografen, große und kleine Studios
+- Agenturen und Broadcast-Produktionen
+
+## Anwendung und Einsatzgebiete
 
 <details>
 <summary>Anwendung und Einsatzgebiete</summary>
 
-*Photosessions zukunftssicher speichern und zur Weiterverarbeitung vorbereiten.*
 
-**fotostudio-helper** ist ein zukunftssicheres Bildarchiv als Basis für weitere Prozesse. Die App skaliert auf >10000 Sessions monatlich, ist schnell, praxisbezogener als mir bekannte Systeme, welche oft Ordnerstrukturen wie YYYY//MM/DD nutzen. 
 
 
 
@@ -51,7 +56,7 @@ Meine Idee ist der Monat, in dem fotografierte Sessions optimal strukturiert lan
 ### Live-Session-Shaping
 - Sessions werden live und datengetrieben anhand realer Aufnahmeabstände erkannt, interaktiv angepasst und mit Metadaten angereichert. Sie entstehen initial anhand eines Zeit-Gaps(Default: neue Session nach 30 Minuten ohne Aufnahme)
 - Der Gap-Slider passt die Sessiongrenzen in Echtzeit an
-und die neuen Cluster mit anderen Bildanzahlen werden in der Sessionliste sichtbar.
+und die neuen Cluster (andere Bildanzahlen) werden in der Sessionliste sichtbar.
 - Vorab-Auswahl problematischer oder irrelevanter Bilder direkt im Scan, Sessions können am Stück gelöscht, benannt, beschrieben und verschlagwortet werden
 - Jede Session erhält eine session.json mit allen Metadaten
 - Gelöschte Bilder werden quellseitig in einen Papierkorb verschoben
@@ -170,7 +175,23 @@ Darin nach dem Export session.json mit weiterverwendbaren  Meta - Daten über de
   – eine saubere Portierung nach Linux ist gut möglich und vorgesehen; der aktuelle Stand funktioniert in der Regel bereits.
 
 **Installation**
+
+
 ```bash
+# if not installed (MAC)
+brew install node
+brew install exiftool
+
 git clone https://github.com/codegarden13/fotostudio-helper
 cd fotostudio-helper
 npm install
+```
+Alternativ: ZIP herunterladen, auspacken 
+
+**Start**
+
+```bash
+cd /App 
+node start server.js
+```
+... der erste Start dauert (einmalig) länger, da Komponenten nachgeladen werden. 
