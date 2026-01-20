@@ -462,25 +462,51 @@ function getSelectedSession() {
   return state.sessions[els.sessions.selectedIndex] || null;
 }
 
+/**
+ * Ensure the session list keeps (or restores) a stable selection.
+ *
+ * Selection strategy (in order):
+ * 1) If `preferSessionId` is provided: select the session with that id.
+ * 2) Else if `fallbackPath` is provided: select the session that contains that file path.
+ * 3) Else: select the first session (index 0).
+ *
+ * Notes:
+ * - This function only updates `els.sessions.selectedIndex`.
+ * - It does not call `onSessionChange()`; the caller decides when to re-render.
+ *
+ * @param {object} [opts]
+ * @param {string|number|null} [opts.preferSessionId=null]
+ * @param {string|null} [opts.fallbackPath=null]
+ */
 function ensureSelection({ preferSessionId = null, fallbackPath = null } = {}) {
-  if (!els.sessions || !state.sessions.length) return;
+  const sel = els.sessions;
+  const sessions = state.sessions;
 
-  let idx = -1;
+  if (!sel || !Array.isArray(sessions) || sessions.length === 0) return;
 
-  if (preferSessionId != null) {
-    idx = state.sessions.findIndex((s) => String(s.id) === String(preferSessionId));
+  const wantedId =
+    preferSessionId != null ? String(preferSessionId) : null;
+
+  const wantedPath =
+    typeof fallbackPath === "string" && fallbackPath.trim()
+      ? fallbackPath
+      : null;
+
+  // 1) Prefer stable session id
+  let idx =
+    wantedId != null
+      ? sessions.findIndex((s) => String(s?.id) === wantedId)
+      : -1;
+
+  // 2) Fallback: find the session containing a known path
+  if (idx < 0 && wantedPath) {
+    idx = sessions.findIndex((s) => Array.isArray(s?.items) && s.items.includes(wantedPath));
   }
 
-  if (idx < 0 && fallbackPath) {
-    idx = state.sessions.findIndex(
-      (s) => Array.isArray(s.items) && s.items.includes(fallbackPath)
-    );
-  }
-
+  // 3) Ultimate fallback: first session
   if (idx < 0) idx = 0;
-  idx = clamp(idx, 0, state.sessions.length - 1);
 
-  els.sessions.selectedIndex = idx;
+  sel.selectedIndex = clamp(idx, 0, sessions.length - 1);
 }
 
 
@@ -753,8 +779,20 @@ async function importSelectedSession() {
       `deleted (source): ${primaryDeleted}/${deletedTotal}\n`
     );
   } catch (e) {
-    setLog({ error: "Import failed", details: e });
+   
+
+
     logLine("[import] failed", e);
+
+    setLog({
+      error: "Import failed",
+      details: {
+        message: e?.message,
+        status: e?.status,
+        data: e?.data,
+        raw: String(e),
+      },
+    });
   } finally {
     // 11) Always restore UI gating + refresh header
     setBusy({ importing: false });
