@@ -34,8 +34,7 @@ import {
   apiDeleteFile,
   apiDeleteSession,
 } from "./lib/api.js";
-/* ======================================================
-   01) CONFIG / CONSTANTS
+/* --- 01) CONFIG / CONSTANTS
 ====================================================== */
 
 const APP = {
@@ -53,8 +52,7 @@ const APP = {
 
 console.log("[app.js] loaded", new Date().toISOString());
 
-/* ======================================================
-   02) DOM BINDINGS
+/* --- 02) DOM BINDINGS
 ====================================================== */
 
 const els = {
@@ -110,9 +108,6 @@ const els = {
 
   delSessionBtn: document.getElementById("delSessionBtn"),
 
-
-
-
   // Import fields
   title: document.getElementById("title"),
   sessionNote: document.getElementById("sessionNote"),
@@ -123,16 +118,14 @@ const els = {
   progressBar: document.getElementById("progressBar"),
 };
 
-/* ======================================================
-   03) LOGGER
+/* --- 03) LOGGER
 ====================================================== */
 
 const logger = createLogger({ el: els.log, mirrorToServer: true });
 const logLine = logger.logLine;
 const setLog = logger.setLog?.bind(logger) || ((v) => logLine("[log]", v));
 
-/* ======================================================
-   04) STATE
+/* --- 04) STATE
 ====================================================== */
 
 const state = {
@@ -163,8 +156,7 @@ function uiRenderHeader() {
   uiRenderHeaderMeta(getSelectedSession());
 }
 
-/* ======================================================
-   05) DOM UTILS (candidate for public/lib/dom.js)
+/* --- 05) DOM UTILS (candidate for public/lib/dom.js)
 ====================================================== */
 
 function on(el, type, handler, options) {
@@ -186,8 +178,7 @@ function clearEl(el) {
 
 
 
-/* ======================================================
-   07) STATE MUTATORS
+/* --- 07) STATE MUTATORS
 ====================================================== */
 
 
@@ -205,8 +196,7 @@ function setSourceRoot(p) {
 
 
 
-/* ======================================================
-   08) UI: HEADER + TARGET + BUTTONS
+/* --- 08) UI: HEADER + TARGET + BUTTONS
 ====================================================== */
 
 function getEffectiveTargetRoot() {
@@ -249,7 +239,6 @@ function uiRenderTarget() {
   uiUpdateImportEnabled();
 }
 
-
 function hasSelectedSession() {
   if (!els.sessions) return false;
   const idx = els.sessions.selectedIndex;
@@ -281,8 +270,29 @@ function setBusy({ scanning = false, importing = false, deleting = false } = {})
 
 }
 
-/* ======================================================
-   09) UI: SESSIONS + META
+/**
+ * Lightweight session UI update.
+ *
+ * Does NOT rebuild the sessions list.
+ * Only ensures selection + updates header/meta/preview.
+ *
+ * Used when regrouping via gap slider on large scans.
+ */
+function uiRenderSessionsLight(sessions) {
+  if (!els.sessions || !Array.isArray(sessions) || !sessions.length) {
+    uiRenderSessionMeta(null);
+    uiSetCurrentImage(null);
+    return;
+  }
+
+  // Keep current selection if possible
+  const s = getSelectedSession() || sessions[0];
+
+  uiRenderSessionMeta(s);
+  uiRenderPreview(s);
+}
+
+/* --- 09) UI: SESSIONS + META
 ====================================================== */
 
 function uiRenderSessions(list) {
@@ -322,8 +332,7 @@ function uiRenderSessionMeta(s) {
   uiRenderHeaderMeta(s);
 }
 
-/* ======================================================
-   10) UI: EXPOSURE + PREVIEW
+/* --- 10) UI: EXPOSURE + PREVIEW
 ====================================================== */
 
 function uiSetExposureNone() {
@@ -403,8 +412,7 @@ async function uiSetCurrentImage(path) {
 
 
 
-/* ======================================================
-   11) GAP PRESETS + GROUPING
+/* --- 11) GAP PRESETS + GROUPING
 ====================================================== */
 
 function uiApplyGapPresets(presetsMs, { keepNearest = true } = {}) {
